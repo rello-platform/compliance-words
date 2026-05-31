@@ -1,0 +1,42 @@
+{
+  "name": "@rello-platform/compliance-words",
+  "version": "0.1.0",
+  "description": "Canonical M7 prohibited-language source-of-truth: structured compliance vocabulary (token + category + context-rules) + a context-aware checker (negation/compound/disclaimer-banner aware, NOT a substring scan) + a committed cross-language keyset (dist/compliance-words-keyset.json) so TS and Python consumers enforce the same affirmative-vs-NOT-THAT logic at every publish/send/generate boundary.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.ts",
+  "comment:exports": "Dual ESM+CJS build (tsup). This package has ZERO runtime dependencies (no transitive ESM-only @rello-platform import to break under require()), so a real CJS build is SAFE here — unlike @rello-platform/signals which must point require at its ESM file. A Milo CJS consumer (P5) require()s dist/index.cjs without ERR_PACKAGE_PATH_NOT_EXPORTED; ESM consumers get dist/index.js. The .json keyset subpath is exported so the Python Report-Engine (P3) can vendor it.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
+    },
+    "./compliance-words-keyset.json": "./dist/compliance-words-keyset.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rello-platform/compliance-words.git"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.6.0"
+  }
+}
