@@ -177,6 +177,38 @@ var COMPLIANCE_REGISTRY = [
         pattern: "condo approval",
         note: "FHA/HUD condominium-project approval process (the 'condo-approval field'), a named eligibility step, not a borrower approval claim (live Rello hecm-v1-fcn-property-type:474)."
       },
+      // Ruling 2 (v0.1.2, Kelly 2026-06-01): compliance-REQUIRED disclaimer
+      // collocations that name the INSTITUTIONAL approval GATE are PROTECTIVE
+      // language, not an advertising claim. "subject to underwriting approval",
+      // "subject to credit approval", "lender approval required", "approval is not
+      // guaranteed" warn the borrower that approval is conditional — the opposite
+      // of an inducement. Registered NARROWLY as institutional-gate nouns so the
+      // genuine promotional claim STILL HARD_BLOCKs: "loan approval" ("Get loan
+      // approval today"), bare "approved" ("you're approved!") and "guarantee
+      // approval" carry no institutional-gate compound and remain blocked. Clears
+      // live Report-Engine disclaimer copy (pfp_prequal_summary "…underwriting
+      // approval are required"; nonqm_scenarios_compare "subject to underwriting
+      // approval"). Closes Kelly-HALTED judgment #2.
+      {
+        kind: "compound",
+        pattern: "underwriting approval",
+        note: "Ruling 2 (Kelly 2026-06-01): the institutional underwriting gate ('subject to underwriting approval', '\u2026underwriting approval are required') is a required protective disclaimer, not an advertising claim. Narrow institutional-gate noun \u2014 'loan approval'/'approved'/'guarantee approval' still HARD_BLOCK."
+      },
+      {
+        kind: "compound",
+        pattern: "credit approval",
+        note: "Ruling 2 (Kelly 2026-06-01): 'subject to credit approval' is a required protective disclaimer naming the institutional credit gate, not an advertising claim."
+      },
+      {
+        kind: "compound",
+        pattern: "lender approval",
+        note: "Ruling 2 (Kelly 2026-06-01): 'lender approval required' / 'subject to lender approval' is a required protective disclaimer naming the institutional lender gate, not an advertising claim."
+      },
+      {
+        kind: "compound",
+        pattern: "approval is not guaranteed",
+        note: "Ruling 2 (Kelly 2026-06-01): 'approval is not guaranteed' is a protective disclaimer \u2014 the 'not'/'guaranteed' sit AFTER 'approval' so the generic negation rule cannot reach it; the fixed disclaimer phrase is registered explicitly."
+      },
       NEGATION,
       DISCLAIMER
     ],
@@ -270,11 +302,40 @@ var COMPLIANCE_REGISTRY = [
     category: "HARD_BLOCK",
     // Gap 3 (v0.1.1): added DISCLAIMER so a caller-marked illustrative/disclaimer
     // block naming 'pre-qualification' inside a NOT-THAT line passes, matching the
-    // posture of approval/quote (P3 finding). NOTE: an AFFIRMATIVE product-identity
-    // use ("Pre-Qualification Summary" title, "is pre-qualified") is deliberately
-    // NOT excused here — that is a Kelly product-policy call left OPEN (RE
-    // pfp_prequal_summary PRODUCT_JUDGMENT_SURFACED trips; see PR body HALT note).
-    allowedContexts: [NEGATION, DISCLAIMER],
+    // posture of approval/quote (P3 finding).
+    //
+    // Ruling 1 (v0.1.2, Kelly 2026-06-01): "pre-qualified" as a PRODUCT NAME is
+    // identity, not an advertising claim. The split is grammatical and reliable:
+    // the -ION NOUN "pre-qualification" / "prequalification" NAMES the product /
+    // feature / document (the PathfinderPro "Pre-Qualification Summary", its
+    // section/status labels, "this pre-qualification is based on…", "ask for an
+    // official pre-qualification") — it is never the prohibited inducement. The
+    // prohibited advertising claim is always the -ED ADJECTIVE/VERB applied to the
+    // borrower ("you're pre-qualified!", "you are pre-qualified, lock your rate",
+    // "get pre-qualified now") — those forms ("pre-qualified", "pre-qualify",
+    // "pre-qualifies", "pre-qualifying", "prequalified", …) carry NO identity
+    // compound and remain HARD_BLOCK. So the noun is registered as a product-name
+    // identity compound (NOT removed from the token — per the ruling's mechanism)
+    // while every adjective/verb form still blocks. Closes Kelly-HALTED judgment
+    // #1. Residual (documented, surfaced to DKA): the 3rd-person status sentence
+    // "<borrower> is pre-qualified" uses the -ED adjective and stays in scope —
+    // deliberately, so the 2nd-person claim "you're pre-qualified" cannot slip;
+    // the summary could title-case it to a "Pre-Qualified" badge if Kelly wants it
+    // cleared too.
+    allowedContexts: [
+      {
+        kind: "compound",
+        pattern: "pre-qualification",
+        note: "Ruling 1 (Kelly 2026-06-01): the -ION NOUN naming the product/feature/document ('Pre-Qualification Summary' title, the status labels, 'this pre-qualification is based on\u2026', 'an official pre-qualification') is identity, not an advertising claim. The -ED adjective claim form ('you're pre-qualified') carries no compound and still HARD_BLOCKs."
+      },
+      {
+        kind: "compound",
+        pattern: "prequalification",
+        note: "Ruling 1 (Kelly 2026-06-01): the unhyphenated spelling of the product-name noun \u2014 same identity allowance as 'pre-qualification'."
+      },
+      NEGATION,
+      DISCLAIMER
+    ],
     suggest: "explore your options",
     provenance: ["S2"]
   },

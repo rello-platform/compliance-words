@@ -233,8 +233,11 @@ describe("disclaimer-banner ranges (fail-safe-strict)", () => {
     assert.deepEqual(checkCompliance(t, { disclaimerRanges: [[0, t.length]] }), []);
   });
 
-  it("pre-qualified IS now disclaimer-exemptible (Gap 3 P3 finding)", () => {
-    const t = "Illustrative scenario: this is a pre-qualification example.";
+  it("pre-qualified IS disclaimer-exemptible (Gap 3 P3 finding)", () => {
+    // Use the -ed ADJECTIVE form: post-v0.1.2 the -ion NOUN "pre-qualification"
+    // is cleared unconditionally as a product-name identity compound, so the
+    // disclaimer-banner mechanism must be exercised with the claim adjective.
+    const t = "Illustrative scenario: you are pre-qualified.";
     assert.deepEqual(tokensOf(t), ["pre-qualified"]);
     assert.deepEqual(checkCompliance(t, { disclaimerRanges: [[0, t.length]] }), []);
   });
@@ -391,6 +394,59 @@ describe("Gap 3 — single negation cue distributes over a coordinated NOT-THAT 
   });
 });
 
+// ── (v0.1.2) Ruling 1 — "pre-qualified" product-name identity (Kelly 2026-06-01)
+describe("Ruling 1 — pre-qualification product-name noun cleared; the claim adjective still blocks", () => {
+  const clean = [
+    ["document title", "Pre-Qualification Summary"],
+    ["lowercase title in prose", "the pre-qualification summary letter"],
+    ["status label", "Pre-Qualification"],
+    ["self-reference in a disclaimer", "This pre-qualification is based on information provided and is subject to verification."],
+    ["official pre-qualification", "Ask your loan officer for an official pre-qualification."],
+    ["unhyphenated noun", "Your prequalification is ready to review."],
+  ];
+  for (const [label, text] of clean) {
+    it(`zero violations: ${label}`, () => {
+      assert.deepEqual(checkCompliance(text), [], `unexpected: ${JSON.stringify(checkCompliance(text))}`);
+    });
+  }
+
+  it("the advertising CLAIM (the -ed adjective applied to the borrower) STILL HARD_BLOCKs", () => {
+    // Kelly's two explicit must-stay-blocked examples + siblings.
+    assert.deepEqual(tokensOf("You're pre-qualified today — apply now!"), ["pre-qualified"]);
+    assert.deepEqual(tokensOf("You are pre-qualified, lock your rate."), ["lock", "pre-qualified"]);
+    assert.deepEqual(tokensOf("Get pre-qualified now."), ["pre-qualified"]);
+    assert.equal(hasHardBlock("You're pre-qualified!"), true);
+  });
+
+  it("the 3rd-person status adjective is the documented residual — still in scope", () => {
+    // "<borrower> is pre-qualified" uses the -ed adjective and stays blocked so
+    // the 2nd-person claim cannot slip (registry comment + DKA report).
+    assert.deepEqual(tokensOf("John Smith is pre-qualified for these programs."), ["pre-qualified"]);
+  });
+});
+
+// ── (v0.1.2) Ruling 2 — institutional-approval disclaimer compounds ──────────
+describe("Ruling 2 — institutional approval-gate disclaimers cleared; promo claim still blocks", () => {
+  const clean = [
+    ["subject to underwriting approval", "Rates and terms are subject to underwriting approval."],
+    ["underwriting approval are required", "Full application, credit review, appraisal, and underwriting approval are required."],
+    ["subject to credit approval", "Your loan is subject to credit approval."],
+    ["lender approval required", "Lender approval required before closing."],
+    ["approval is not guaranteed", "Approval is not guaranteed."],
+  ];
+  for (const [label, text] of clean) {
+    it(`zero violations: ${label}`, () => {
+      assert.deepEqual(checkCompliance(text), [], `unexpected: ${JSON.stringify(checkCompliance(text))}`);
+    });
+  }
+
+  it("the genuine promotional approval claim STILL HARD_BLOCKs (no over-loosening)", () => {
+    assert.deepEqual(tokensOf("Get loan approval today."), ["approval"]);
+    assert.deepEqual(tokensOf("You're approved — congratulations!"), ["approval"]);
+    assert.deepEqual(tokensOf("We guarantee approval for every applicant."), ["approval", "guarantee"]);
+  });
+});
+
 // ── (k) Cross-language keyset (committed dist artifact) ──────────────────────
 describe("dist/compliance-words-keyset.json", () => {
   const keyset = JSON.parse(
@@ -399,7 +455,7 @@ describe("dist/compliance-words-keyset.json", () => {
 
   it("names the package + version and carries all 11 entries", () => {
     assert.equal(keyset.package, "@rello-platform/compliance-words");
-    assert.equal(keyset.version, "0.1.1");
+    assert.equal(keyset.version, "0.1.2");
     assert.equal(keyset.entries.length, 11);
   });
 
