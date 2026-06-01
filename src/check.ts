@@ -24,6 +24,9 @@ import {
   COMPLIANCE_REGISTRY,
   NEGATION_CUES,
   DEFAULT_NEGATION_PROXIMITY,
+  DEFAULT_LIST_NEGATION_PROXIMITY,
+  CLAUSE_BREAKERS,
+  LIST_COORDINATORS,
   type ComplianceCategory,
   type ComplianceEntry,
 } from "./registry/index.js";
@@ -57,6 +60,8 @@ const BOUNDARY_AFTER = `(?![${WORD_CHAR}])`;
 const SEP = `[^${WORD_CHAR}]+`; // ≥1 non-word char between phrase words
 const SENTENCE_TERMINATOR = /[.!?;\n]/;
 const NEGATION_SET: ReadonlySet<string> = new Set(NEGATION_CUES);
+const CLAUSE_BREAKER_SET: ReadonlySet<string> = new Set(CLAUSE_BREAKERS);
+const LIST_COORDINATOR_SET: ReadonlySet<string> = new Set(LIST_COORDINATORS);
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -103,6 +108,7 @@ interface CompiledEntry {
   readonly compoundRegexes: readonly RegExp[];
   readonly hasNegation: boolean;
   readonly negationProximity: number;
+  readonly listNegationProximity: number;
   readonly hasDisclaimer: boolean;
 }
 
@@ -122,6 +128,7 @@ const COMPILED: readonly CompiledEntry[] = COMPLIANCE_REGISTRY.map((entry) => {
     compoundRegexes,
     hasNegation: Boolean(negation),
     negationProximity: negation?.proximity ?? DEFAULT_NEGATION_PROXIMITY,
+    listNegationProximity: DEFAULT_LIST_NEGATION_PROXIMITY,
     hasDisclaimer: entry.allowedContexts.some((c) => c.kind === "disclaimer-banner"),
   };
 });
@@ -167,20 +174,51 @@ function wordIndexForMatch(words: Word[], offset: number): number {
   return words.length;
 }
 
+/**
+ * Is the match excused by a negation cue earlier in the same clause?
+ *
+ * Two ways to be negated (Gap 3, v0.1.1 — list-aware):
+ *   1. DIRECT: a cue within `proximity` words before the match (the v0.1.0 rule;
+ *      `proximity` defaults to 6 and is unchanged for close cues).
+ *   2. LIST-DISTRIBUTED: a cue up to `listProximity` words before the match, where
+ *      a coordinated list (a comma between words, or an `or`/`nor`) appears between
+ *      the cue and the match. This excuses every item of a NOT-THAT list under a
+ *      single cue ("never call it an offer, a quote, an approval, a lock, or a
+ *      pre-qualification"; "not a commitment to lend or a guarantee of loan
+ *      approval").
+ *
+ * The scan stops at a sentence terminator OR a clause breaker (`so`, `but`, …) —
+ * so a negation in a prior clause never distributes into a later one. The
+ * coordinator requirement + clause-breaker stop are what keep the wider list
+ * window from over-excusing a far, uncoordinated affirmative claim.
+ */
 function isNegated(
   masked: string,
   words: Word[],
   matchOffset: number,
   proximity: number,
+  listProximity: number,
 ): boolean {
   const w = wordIndexForMatch(words, matchOffset);
-  for (let j = w - 1; j >= 0 && j >= w - proximity; j--) {
+  let sawCoordinator = false;
+  const floor = Math.max(0, w - listProximity);
+  for (let j = w - 1; j >= floor; j--) {
     const next = words[j + 1];
     const rightEdge = next ? next.start : matchOffset;
     const gap = masked.slice(words[j].end, rightEdge);
     if (SENTENCE_TERMINATOR.test(gap)) break; // crossed a sentence boundary
+    // A literal comma between this word and the next (toward the match) is a list
+    // coordinator — record it before inspecting the word itself.
+    if (gap.includes(",")) sawCoordinator = true;
     const cue = normalizeApostrophe(words[j].text.toLowerCase()).replace(/^'+|'+$/g, "");
-    if (NEGATION_SET.has(cue)) return true;
+    if (CLAUSE_BREAKER_SET.has(cue)) break; // negation does not cross a clause boundary
+    if (NEGATION_SET.has(cue)) {
+      const dist = w - j;
+      if (dist <= proximity) return true; // (1) direct
+      if (sawCoordinator) return true; // (2) list-distributed
+      break; // a cue this far with no coordination does not negate; stop
+    }
+    if (LIST_COORDINATOR_SET.has(cue)) sawCoordinator = true;
   }
   return false;
 }
@@ -238,7 +276,10 @@ export function checkCompliance(text: string, opts: CheckOptions = {}): readonly
       // Resolve allowed contexts (any → not a violation).
       if (withinAnyCompound(index, compoundSpans)) continue;
       if (compiled.hasDisclaimer && withinAnyRange(index, opts.disclaimerRanges)) continue;
-      if (compiled.hasNegation && isNegated(masked, words, index, compiled.negationProximity)) {
+      if (
+        compiled.hasNegation &&
+        isNegated(masked, words, index, compiled.negationProximity, compiled.listNegationProximity)
+      ) {
         continue;
       }
 

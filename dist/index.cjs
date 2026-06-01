@@ -20,9 +20,12 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // src/index.ts
 var index_exports = {};
 __export(index_exports, {
+  CLAUSE_BREAKERS: () => CLAUSE_BREAKERS,
   COMPLIANCE_REGISTRY: () => COMPLIANCE_REGISTRY,
   COMPLIANCE_TOKEN_SET: () => COMPLIANCE_TOKEN_SET,
+  DEFAULT_LIST_NEGATION_PROXIMITY: () => DEFAULT_LIST_NEGATION_PROXIMITY,
   DEFAULT_NEGATION_PROXIMITY: () => DEFAULT_NEGATION_PROXIMITY,
+  LIST_COORDINATORS: () => LIST_COORDINATORS,
   NEGATION_CUES: () => NEGATION_CUES,
   checkCompliance: () => checkCompliance,
   hasHardBlock: () => hasHardBlock,
@@ -54,6 +57,25 @@ var NEGATION_CUES = [
   "couldn't"
 ];
 var DEFAULT_NEGATION_PROXIMITY = 6;
+var DEFAULT_LIST_NEGATION_PROXIMITY = 18;
+var CLAUSE_BREAKERS = [
+  "so",
+  "but",
+  "because",
+  "therefore",
+  "thus",
+  "then",
+  "however",
+  "meanwhile",
+  "while",
+  "although",
+  "though",
+  "yet",
+  "since",
+  "unless",
+  "whereas"
+];
+var LIST_COORDINATORS = ["or", "nor"];
 var NEGATION = {
   kind: "negation",
   pattern: "negation cue (not|never|no|isn't|won't\u2026) within proximity words before the match, same sentence",
@@ -74,8 +96,13 @@ var COMPLIANCE_REGISTRY = [
     allowedContexts: [
       {
         kind: "compound",
-        pattern: "usda guarantee fee",
-        note: "USDA's named 'guarantee fee' is a real loan-program term, not an advertising claim."
+        pattern: "guarantee fee",
+        note: "The named loan-program 'guarantee fee' (USDA upfront/annual guarantee fee, '0.35% annual guarantee fee') is a real fee term, not an advertising claim. Broadened from 'usda guarantee fee' to cover the abbreviated/annual label uses found in live Report-Engine template copy (m7-baseline DOMAIN_COMPOUND_SOT_GAP, pfp_prequal_summary:150)."
+      },
+      {
+        kind: "compound",
+        pattern: "mip / guarantee",
+        note: "The scenario-comparison column label 'MIP / Guarantee' (mortgage-insurance-premium vs. USDA guarantee-fee row). Live Report-Engine template label (m7-baseline DOMAIN_COMPOUND_SOT_GAP, pfp_scenario_comparison:187)."
       },
       {
         kind: "compound",
@@ -87,7 +114,8 @@ var COMPLIANCE_REGISTRY = [
         pattern: "guarantee of value",
         note: "'not a guarantee of value' appraisal/disclosure phrasing."
       },
-      NEGATION
+      NEGATION,
+      DISCLAIMER
     ],
     suggest: "designed to / built to",
     provenance: ["S1", "S4", "S5", "S6", "RE"]
@@ -123,7 +151,35 @@ var COMPLIANCE_REGISTRY = [
     matchType: "word-stem",
     forms: ["approval", "approvals", "approved", "approve", "approves", "approving"],
     category: "HARD_BLOCK",
-    allowedContexts: [NEGATION, DISCLAIMER],
+    allowedContexts: [
+      {
+        kind: "compound",
+        pattern: "hud-approved",
+        note: "Named federal designation: a 'HUD-approved counselor' / 'HUD-approved housing counselor' / 'HUD-approved condominium' / 'HUD-approved counseling' is a real HUD status, NOT an advertising approval claim. The mandatory HECM HUD-counseling line carries it on every compliant message (live Rello HecmContent comp-hud-counseling-mandatory, obj-reverse-scams, hecm-v1 property-type rows; Milo HUD-counseling line; RE pfp_hecm_scenario_comparison:92,417). Closes DISCOVERED-MILO-COMPLIANCE-WORDS-HUD-APPROVED-COMPOUND-MISSING-260531."
+      },
+      {
+        kind: "compound",
+        pattern: "fha-approved",
+        note: "Named federal designation: 'FHA-approved' / 'FHA/HUD-approved' condo/lender status, not an advertising claim (live Rello hecm-v1-card-property-type-eligibility:402, hecm-v1-fcn-property-type:309)."
+      },
+      {
+        kind: "compound",
+        pattern: "hud's approved list",
+        note: "Reference to HUD's published list of approved condominium projects \u2014 a domain artifact, not a borrower approval claim (live Rello hecm-v1-card-property-type-eligibility:523, hecm-v1-fcn-property-type:424)."
+      },
+      {
+        kind: "compound",
+        pattern: "single-unit approval",
+        note: "FHA Single-Unit Approval (SUA) \u2014 a named condominium-eligibility process, not a borrower approval claim (live Rello hecm-v1-card-property-type-eligibility:561)."
+      },
+      {
+        kind: "compound",
+        pattern: "condo approval",
+        note: "FHA/HUD condominium-project approval process (the 'condo-approval field'), a named eligibility step, not a borrower approval claim (live Rello hecm-v1-fcn-property-type:474)."
+      },
+      NEGATION,
+      DISCLAIMER
+    ],
     suggest: "review / pre-eligibility (if accurate)",
     provenance: ["S1", "S2", "S3", "RE"]
   },
@@ -143,6 +199,11 @@ var COMPLIANCE_REGISTRY = [
         pattern: "rate lock",
         note: "'rate lock' as a named product step in transactional/closing copy (post-event), not an affirmative pre-event claim."
       },
+      {
+        kind: "compound",
+        pattern: "lock days",
+        note: "The rate-lock-period column label 'Lock days' in scenario-comparison copy \u2014 a transactional field, not an affirmative lock claim (live Report-Engine pfp_scenario_comparison:359)."
+      },
       NEGATION
     ],
     suggest: "secure your rate (after a real lock)",
@@ -158,9 +219,36 @@ var COMPLIANCE_REGISTRY = [
     provenance: ["S1", "S2", "S3", "RE"]
   },
   {
+    // Gap 2 (v0.1.1): the bare `offer` stem false-blocked ordinary English —
+    // "offer to include the family", "your real offered rate", "the MLO's offered
+    // HECM rate", "record it when offered", "more trust than you could offer"
+    // (live Rello fcn-expected-rate, hecm-v1-fcn-family-involved,
+    // hecm-v1-fcn-trusted-contact-phone, obj-reverse-scams; RE
+    // pfp_hecm_scenario_comparison:624). The PROHIBITED sense is the promotional
+    // marketing collocation, not the verb/participle. So `offer` is narrowed from
+    // a word-stem to a PHRASE that matches only the marketing collocations
+    // (chosen mechanism (a) of the dispatch's Gap-2 options): ordinary verb/
+    // participle uses now pass cleanly, while "limited-time offer" / "special
+    // offer" / "offer expires" still HARD_BLOCK. Residual (documented): a bare
+    // promotional NOUN with no qualifier ("here's our offer") is no longer caught
+    // — acceptable, since such copy is rare and the unambiguous claim collocations
+    // remain blocked.
     token: "offer",
-    matchType: "word-stem",
-    forms: ["offer", "offered", "offers", "offering"],
+    matchType: "phrase",
+    forms: [
+      "special offer",
+      "exclusive offer",
+      "limited offer",
+      "limited-time offer",
+      "limited time offer",
+      "one-time offer",
+      "one time offer",
+      "best offer",
+      "offer expires",
+      "offer ends",
+      "offer ends soon",
+      "act now offer"
+    ],
     category: "HARD_BLOCK",
     allowedContexts: [NEGATION, DISCLAIMER],
     suggest: "option / scenario",
@@ -180,7 +268,13 @@ var COMPLIANCE_REGISTRY = [
       "prequalification"
     ],
     category: "HARD_BLOCK",
-    allowedContexts: [NEGATION],
+    // Gap 3 (v0.1.1): added DISCLAIMER so a caller-marked illustrative/disclaimer
+    // block naming 'pre-qualification' inside a NOT-THAT line passes, matching the
+    // posture of approval/quote (P3 finding). NOTE: an AFFIRMATIVE product-identity
+    // use ("Pre-Qualification Summary" title, "is pre-qualified") is deliberately
+    // NOT excused here — that is a Kelly product-policy call left OPEN (RE
+    // pfp_prequal_summary PRODUCT_JUDGMENT_SURFACED trips; see PR body HALT note).
+    allowedContexts: [NEGATION, DISCLAIMER],
     suggest: "explore your options",
     provenance: ["S2"]
   },
@@ -264,6 +358,8 @@ var BOUNDARY_AFTER = `(?![${WORD_CHAR}])`;
 var SEP = `[^${WORD_CHAR}]+`;
 var SENTENCE_TERMINATOR = /[.!?;\n]/;
 var NEGATION_SET = new Set(NEGATION_CUES);
+var CLAUSE_BREAKER_SET = new Set(CLAUSE_BREAKERS);
+var LIST_COORDINATOR_SET = new Set(LIST_COORDINATORS);
 function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -304,6 +400,7 @@ var COMPILED = COMPLIANCE_REGISTRY.map((entry) => {
     compoundRegexes,
     hasNegation: Boolean(negation),
     negationProximity: negation?.proximity ?? DEFAULT_NEGATION_PROXIMITY,
+    listNegationProximity: DEFAULT_LIST_NEGATION_PROXIMITY,
     hasDisclaimer: entry.allowedContexts.some((c) => c.kind === "disclaimer-banner")
   };
 });
@@ -325,15 +422,25 @@ function wordIndexForMatch(words, offset) {
   }
   return words.length;
 }
-function isNegated(masked, words, matchOffset, proximity) {
+function isNegated(masked, words, matchOffset, proximity, listProximity) {
   const w = wordIndexForMatch(words, matchOffset);
-  for (let j = w - 1; j >= 0 && j >= w - proximity; j--) {
+  let sawCoordinator = false;
+  const floor = Math.max(0, w - listProximity);
+  for (let j = w - 1; j >= floor; j--) {
     const next = words[j + 1];
     const rightEdge = next ? next.start : matchOffset;
     const gap = masked.slice(words[j].end, rightEdge);
     if (SENTENCE_TERMINATOR.test(gap)) break;
+    if (gap.includes(",")) sawCoordinator = true;
     const cue = normalizeApostrophe(words[j].text.toLowerCase()).replace(/^'+|'+$/g, "");
-    if (NEGATION_SET.has(cue)) return true;
+    if (CLAUSE_BREAKER_SET.has(cue)) break;
+    if (NEGATION_SET.has(cue)) {
+      const dist = w - j;
+      if (dist <= proximity) return true;
+      if (sawCoordinator) return true;
+      break;
+    }
+    if (LIST_COORDINATOR_SET.has(cue)) sawCoordinator = true;
   }
   return false;
 }
@@ -371,7 +478,7 @@ function checkCompliance(text, opts = {}) {
       if (compiled.tokenRegex.lastIndex === index) compiled.tokenRegex.lastIndex++;
       if (withinAnyCompound(index, compoundSpans)) continue;
       if (compiled.hasDisclaimer && withinAnyRange(index, opts.disclaimerRanges)) continue;
-      if (compiled.hasNegation && isNegated(masked, words, index, compiled.negationProximity)) {
+      if (compiled.hasNegation && isNegated(masked, words, index, compiled.negationProximity, compiled.listNegationProximity)) {
         continue;
       }
       violations.push({
@@ -396,9 +503,12 @@ function hasHardBlock(text, opts = {}) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  CLAUSE_BREAKERS,
   COMPLIANCE_REGISTRY,
   COMPLIANCE_TOKEN_SET,
+  DEFAULT_LIST_NEGATION_PROXIMITY,
   DEFAULT_NEGATION_PROXIMITY,
+  LIST_COORDINATORS,
   NEGATION_CUES,
   checkCompliance,
   hasHardBlock,
