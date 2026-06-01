@@ -1,6 +1,6 @@
 {
   "name": "@rello-platform/compliance-words",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Canonical M7 prohibited-language source-of-truth: structured compliance vocabulary (token + category + context-rules) + a context-aware checker (negation/compound/disclaimer-banner aware, NOT a substring scan) + a committed cross-language keyset (dist/compliance-words-keyset.json) so TS and Python consumers enforce the same affirmative-vs-NOT-THAT logic at every publish/send/generate boundary.",
   "type": "module",
   "main": "./dist/index.cjs",

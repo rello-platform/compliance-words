@@ -13,7 +13,7 @@ logic without re-drifting.
 ## Install (git-dep, pinned tag)
 
 ```jsonc
-"@rello-platform/compliance-words": "github:rello-platform/compliance-words#v0.1.0"
+"@rello-platform/compliance-words": "github:rello-platform/compliance-words#v0.1.2"
 ```
 
 This package commits `dist/` and has **no `prepare`/`postinstall` hook** (git-dep
@@ -62,6 +62,50 @@ at a word boundary **and** none of its allowed contexts fires:
 offer"`, `"limited-time offer"`, `"offer expires"`, …) — ordinary verb/participle
 uses (`"your offered rate"`, `"offer to include the family"`) are **not** flagged
 (v0.1.1 Gap 2).
+
+### v0.1.2 — Kelly's compliance rulings (2026-06-01)
+
+Two additive **compound** allowances (no new mechanism — both ride the existing
+`compound` context, the SoT is just told which fixed collocations are legitimate):
+
+- **`pre-qualification` / `prequalification` (the product-name NOUN) is identity, not a claim.**
+  The PathfinderPro "Pre-Qualification Summary" document, its section/status
+  labels, and prose self-references ("this pre-qualification is based on…", "an
+  official pre-qualification") name the product/feature. The grammatical split is
+  reliable: the **-ion noun** names the product (allowed); the **-ed adjective/verb**
+  applied to the borrower (`"you're pre-qualified"`, `"get pre-qualified"`) is the
+  prohibited inducement and **still HARD_BLOCKs**. *(Residual: the 3rd-person status
+  sentence "<borrower> is pre-qualified" uses the adjective and stays in scope so
+  the 2nd-person claim cannot slip.)*
+- **Institutional approval-gate disclaimers are protective, not advertising.**
+  `"underwriting approval"`, `"credit approval"`, `"lender approval"`, and
+  `"approval is not guaranteed"` are compliance-required disclaimer collocations
+  ("subject to underwriting approval", "lender approval required"). They are
+  registered narrowly so the genuine promotional claim still blocks: `"loan
+  approval"` ("Get loan approval today"), bare `"approved"` ("you're approved!"),
+  and `"guarantee approval"` carry no gate compound and remain HARD_BLOCK.
+
+### Audience scope — borrower-facing only (ruling 3)
+
+M7 is a **borrower-facing advertising** rule. **Internal broker / back-office /
+audit documents are out of scope** — a broker closing-audit packet that records an
+"Approved" loan-approval *status*, a broker→title commission disbursement, a
+broker→agent commission statement, etc. are not borrower advertising and must not
+be linted by the M7 gate.
+
+This package is a pure text-in → violations-out checker; it cannot know a string's
+audience. **Audience classification is the consumer's responsibility** and lives at
+the gate, not in the vocabulary. The convention:
+
+- The consumer marks each lintable surface as **borrower-facing** (the default —
+  fail-safe-strict: an unclassified surface is treated as borrower-facing and IS
+  linted) or **internal** (explicitly opted out).
+- The gate skips internal surfaces *before* calling `checkCompliance`, and **logs
+  what it skipped** (no silent scope-narrowing).
+- Grounding the line per consumer: Report-Engine declares a module-level
+  `AUDIENCE = "internal"` on internal template modules (closing-audit-packet,
+  commission-disbursement-authorization, agent-commission-statement); Rello scopes
+  by `HecmContent` audience; Milo lints only borrower-facing generated copy.
 
 ## Categories
 
