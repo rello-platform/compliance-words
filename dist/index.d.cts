@@ -79,6 +79,40 @@ declare const NEGATION_CUES: readonly string[];
 /** Default words-before-match window for a `kind:'negation'` allowance. */
 declare const DEFAULT_NEGATION_PROXIMITY = 6;
 /**
+ * List-aware negation window (Gap 3, v0.1.1). A real borrower disclaimer often
+ * coordinates many NOT-THAT items under a single negation cue —
+ * *"never call it an offer, a quote, an approval, a lock, or a pre-qualification"*
+ * (15 words from `never` to `pre-qualification`); *"not a commitment to lend or a
+ * guarantee of loan approval"* (`approval` is 10 words after `not`). The tight
+ * {@link DEFAULT_NEGATION_PROXIMITY} window of 6 excused only the first item.
+ *
+ * When a token sits beyond the base window BUT a comma / `or` / `nor` coordinator
+ * appears between it and an earlier negation cue (in the same clause — the scan
+ * stops at a sentence terminator or a {@link CLAUSE_BREAKERS} word), the single
+ * cue is treated as distributing over the whole coordinated list, up to this many
+ * words. The coordinator requirement is what keeps this from over-excusing a
+ * far-but-uncoordinated affirmative claim ("we never want you to feel pressured,
+ * so … we guarantee a great rate" — `so` is a clause breaker, the scope stops).
+ */
+declare const DEFAULT_LIST_NEGATION_PROXIMITY = 18;
+/**
+ * Words that mark a new clause — a negation cue does NOT distribute across one.
+ * The backward negation scan stops here, so a negation in a prior clause of the
+ * same sentence cannot excuse a token in a later clause. This is the guard that
+ * makes the wider {@link DEFAULT_LIST_NEGATION_PROXIMITY} list window safe: it
+ * extends negation across a coordinated list ("a, b, or c") but never across a
+ * clause boundary ("…, so we guarantee…", "…, but we guarantee…").
+ */
+declare const CLAUSE_BREAKERS: readonly string[];
+/**
+ * Coordinating words that (alongside a literal comma between words) signal a
+ * coordinated list, enabling the {@link DEFAULT_LIST_NEGATION_PROXIMITY}
+ * extension. `and` is intentionally EXCLUDED: it commonly joins independent
+ * clauses ("…and we guarantee…") where the negation must NOT distribute; real M7
+ * disclaimer lists coordinate their final item with `or`/`nor`.
+ */
+declare const LIST_COORDINATORS: readonly string[];
+/**
  * The canonical M7 vocabulary. 10 prohibited tokens/phrases + the `AI` identity
  * rule = 11 rows, verbatim from the spec's reconciled seed table.
  */
@@ -140,4 +174,4 @@ declare function checkCompliance(text: string, opts?: CheckOptions): readonly Vi
 /** True iff `text` contains at least one HARD_BLOCK violation. */
 declare function hasHardBlock(text: string, opts?: CheckOptions): boolean;
 
-export { type AllowedContext, COMPLIANCE_REGISTRY, COMPLIANCE_TOKEN_SET, type CheckOptions, type ComplianceCategory, type ComplianceEntry, DEFAULT_NEGATION_PROXIMITY, type MatchType, NEGATION_CUES, type Violation, checkCompliance, hasHardBlock, listComplianceEntries };
+export { type AllowedContext, CLAUSE_BREAKERS, COMPLIANCE_REGISTRY, COMPLIANCE_TOKEN_SET, type CheckOptions, type ComplianceCategory, type ComplianceEntry, DEFAULT_LIST_NEGATION_PROXIMITY, DEFAULT_NEGATION_PROXIMITY, LIST_COORDINATORS, type MatchType, NEGATION_CUES, type Violation, checkCompliance, hasHardBlock, listComplianceEntries };

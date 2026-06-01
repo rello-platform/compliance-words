@@ -8,6 +8,9 @@ import {
   COMPLIANCE_TOKEN_SET,
   NEGATION_CUES,
   DEFAULT_NEGATION_PROXIMITY,
+  DEFAULT_LIST_NEGATION_PROXIMITY,
+  CLAUSE_BREAKERS,
+  LIST_COORDINATORS,
   listComplianceEntries,
   checkCompliance,
   hasHardBlock,
@@ -48,7 +51,14 @@ describe("registry — completeness", () => {
       assert.equal(typeof e.token, "string", `${e.token}: token`);
       assert.ok(["word-stem", "phrase", "word"].includes(e.matchType), `${e.token}: matchType`);
       assert.ok(Array.isArray(e.forms) && e.forms.length > 0, `${e.token}: forms non-empty`);
-      assert.ok(e.forms.includes(e.token), `${e.token}: forms must include the canonical token`);
+      // The canonical token must appear (as a word) in at least one form. For
+      // word-stem/word the token IS a form; for phrase entries the token is the
+      // lemma and appears inside a collocation form (e.g. `offer` ∈ "special
+      // offer" after Gap 2 narrowed `offer` to its prohibited collocations).
+      assert.ok(
+        e.forms.some((f) => f === e.token || f.split(/[^a-z0-9]+/i).includes(e.token)),
+        `${e.token}: token must appear as a word in at least one form`,
+      );
       assert.ok(["HARD_BLOCK", "REVIEW_FLAG"].includes(e.category), `${e.token}: category`);
       assert.ok(Array.isArray(e.allowedContexts), `${e.token}: allowedContexts`);
       for (const c of e.allowedContexts) {
@@ -202,22 +212,38 @@ describe("HTML tokenization", () => {
 
 // ── (g) Disclaimer-banner — fail-safe-strict ────────────────────────────────
 describe("disclaimer-banner ranges (fail-safe-strict)", () => {
-  const banner = "Illustrative scenario: an example offer and quote shown for comparison.";
+  // "an example quote" + a bare "offer" (no promotional collocation): post-Gap-2
+  // the bare `offer` no longer matches, so the unmarked block flags only `quote`.
+  const banner = "Illustrative scenario: an example quote shown for comparison.";
 
   it("an UNMARKED illustrative block HARD_BLOCKs (fail-safe-strict)", () => {
     assert.equal(hasHardBlock(banner), true);
-    assert.deepEqual(tokensOf(banner), ["offer", "quote"]);
+    assert.deepEqual(tokensOf(banner), ["quote"]);
   });
 
   it("the SAME block marked as a disclaimer range passes", () => {
     assert.deepEqual(checkCompliance(banner, { disclaimerRanges: [[0, banner.length]] }), []);
   });
 
-  it("guarantee is NOT disclaimer-exemptible (no disclaimer-banner context)", () => {
+  it("guarantee IS now disclaimer-exemptible (Gap 3 added disclaimer-banner context)", () => {
     const t = "Illustrative: we guarantee this rate.";
-    // even marked as a disclaimer range, guarantee still blocks (entry has no
-    // disclaimer-banner allowance — only negation/compound).
-    assert.deepEqual(tokensOf(t, { disclaimerRanges: [[0, t.length]] }), ["guarantee"]);
+    // unmarked → blocks (fail-safe-strict); marked as a disclaimer range → passes
+    // (v0.1.1 added a disclaimer-banner allowance to the `guarantee` entry).
+    assert.deepEqual(tokensOf(t), ["guarantee"]);
+    assert.deepEqual(checkCompliance(t, { disclaimerRanges: [[0, t.length]] }), []);
+  });
+
+  it("pre-qualified IS now disclaimer-exemptible (Gap 3 P3 finding)", () => {
+    const t = "Illustrative scenario: this is a pre-qualification example.";
+    assert.deepEqual(tokensOf(t), ["pre-qualified"]);
+    assert.deepEqual(checkCompliance(t, { disclaimerRanges: [[0, t.length]] }), []);
+  });
+
+  it("risk-free is NOT disclaimer-exemptible (negation-only — no compliant use)", () => {
+    const t = "Illustrative: this is a risk-free investment.";
+    // even marked as a disclaimer range, risk-free still blocks (entry carries no
+    // disclaimer-banner allowance — suggest is 'delete').
+    assert.deepEqual(tokensOf(t, { disclaimerRanges: [[0, t.length]] }), ["risk-free"]);
   });
 });
 
@@ -270,6 +296,101 @@ describe("negation mechanics", () => {
   });
 });
 
+// ── (v0.1.1) Gap 1 — federal/program-designation compounds ──────────────────
+// Live blocking copy (8 Rello HecmContent rows + 31 RE grandfathered trips) that
+// v0.1.0 false-HARD_BLOCKed on a fixed federal/program term. Each MUST now be
+// clean while a real affirmative claim with the same stem still blocks.
+describe("Gap 1 — federal/program-designation compounds", () => {
+  const clean = [
+    // HUD-approved (the mandatory HECM counseling line + condo eligibility)
+    ["HUD-approved counselor (mandatory HECM line)", "Every borrower completes a session with an independent HUD-approved counselor before applying."],
+    ["HUD-approved counseling", "Every HECM borrower must receive HUD-approved counseling first."],
+    ["HUD-approved housing counselors", "HUD-approved housing counselors can help you decide."],
+    ["HUD-approved condominium", "The borrower occupies one unit of a HUD-approved condominium."],
+    ["FHA/HUD-approved", "A condo project has to be FHA/HUD-approved, not just the unit."],
+    ["HUD's approved list", "Check whether the project is on HUD's approved list before applying."],
+    ["single-unit approval", "We check whether single-unit approval is an option."],
+    ["condo-approval field", "The workspace has a separate condo-approval field for exactly this."],
+    // guarantee fee / MIP-Guarantee label
+    ["annual guarantee fee", "No down payment. 1% upfront + 0.35% annual guarantee fee."],
+    ["MIP / Guarantee column label", "Column: MIP / Guarantee shown per loan type."],
+    // lock days transactional label
+    ["lock days label", "Lock days: 45 for this scenario."],
+  ];
+  for (const [label, text] of clean) {
+    it(`zero violations: ${label}`, () => {
+      assert.deepEqual(checkCompliance(text), [], `unexpected: ${JSON.stringify(checkCompliance(text))}`);
+    });
+  }
+
+  it("the same stems STILL block as affirmative claims (no over-loosening)", () => {
+    assert.deepEqual(tokensOf("You're approved — congratulations!"), ["approval"]);
+    assert.deepEqual(tokensOf("We guarantee the lowest rate, period."), ["guarantee"]);
+    assert.deepEqual(tokensOf("Lock your rate today before it rises."), ["lock"]);
+  });
+});
+
+// ── (v0.1.1) Gap 2 — ordinary verb/participle uses of offer/offered ─────────
+describe("Gap 2 — ordinary offer/offered cleared; promotional collocations still block", () => {
+  const clean = [
+    ["offered rate (methodology)", "The workspace prices off your real offered rate rather than the placeholder."],
+    ["MLO's offered HECM rate", "Effective rate uses the MLO's offered HECM rate where available."],
+    ["offer to include the family", "When family is involved, offer to include them in the conversation."],
+    ["record it when offered", "This is optional; record it cleanly when offered, skip it without friction."],
+    ["could offer (verb)", "It builds more trust than any reassurance you could offer."],
+    ["Offered at (label)", "Offered at: the rate captured at generation time."],
+  ];
+  for (const [label, text] of clean) {
+    it(`zero violations: ${label}`, () => {
+      assert.deepEqual(checkCompliance(text), [], `unexpected: ${JSON.stringify(checkCompliance(text))}`);
+    });
+  }
+
+  it("promotional offer collocations STILL HARD_BLOCK", () => {
+    assert.deepEqual(tokensOf("Limited-time offer — act now!"), ["offer"]);
+    assert.deepEqual(tokensOf("This is a special offer just for you."), ["offer"]);
+    assert.deepEqual(tokensOf("Exclusive offer: refinance this week."), ["offer"]);
+    assert.deepEqual(tokensOf("This offer expires Friday."), ["offer"]);
+    assert.equal(hasHardBlock("Limited time offer ends soon."), true);
+  });
+});
+
+// ── (v0.1.1) Gap 3 — list-aware negation + wider disclaimer windows ─────────
+describe("Gap 3 — single negation cue distributes over a coordinated NOT-THAT list", () => {
+  const clean = [
+    // Live Rello comp-illustrative-vs-quote row (was 4 HARD_BLOCKs)
+    ["Rello NOT-THAT list (never call it …)", "Critical: never call a workspace number an offer, a quote, an approval, a lock, or a pre-qualification."],
+    // Live RE disclaimer sentences (DISCLAIMER_NEGATION_PROXIMITY trips)
+    ["RE 'not a commitment to lend or a guarantee of loan approval'", "It is not a commitment to lend or a guarantee of loan approval."],
+    ["RE 'not a loan offer, quote, approval, or commitment'", "This is an illustrative estimate — not a loan offer, quote, approval, or commitment to lend."],
+    ["RE pre-qual disclaimer (negated guarantee/approval)", "This estimate is based on information provided. It is not a commitment to lend or a guarantee of loan approval."],
+  ];
+  for (const [label, text] of clean) {
+    it(`zero violations: ${label}`, () => {
+      assert.deepEqual(checkCompliance(text), [], `unexpected: ${JSON.stringify(checkCompliance(text))}`);
+    });
+  }
+
+  it("list-distribution does NOT cross a clause boundary (no over-excuse)", () => {
+    // 'so' is a clause breaker → the negation does not reach 'guarantee'.
+    assert.deepEqual(
+      tokensOf("We never want you to feel pressured, so we guarantee a great rate."),
+      ["guarantee"],
+    );
+    // A far cue with NO comma/or coordinator does not distribute either.
+    assert.deepEqual(
+      tokensOf("Not one two three four five six seven eight guarantee approval."),
+      ["approval", "guarantee"],
+    );
+  });
+
+  it("the list window + clause breakers + coordinators are exported & sane", () => {
+    assert.equal(DEFAULT_LIST_NEGATION_PROXIMITY, 18);
+    assert.ok(CLAUSE_BREAKERS.includes("so") && CLAUSE_BREAKERS.includes("but"));
+    assert.deepEqual([...LIST_COORDINATORS], ["or", "nor"]);
+  });
+});
+
 // ── (k) Cross-language keyset (committed dist artifact) ──────────────────────
 describe("dist/compliance-words-keyset.json", () => {
   const keyset = JSON.parse(
@@ -278,13 +399,16 @@ describe("dist/compliance-words-keyset.json", () => {
 
   it("names the package + version and carries all 11 entries", () => {
     assert.equal(keyset.package, "@rello-platform/compliance-words");
-    assert.equal(keyset.version, "0.1.0");
+    assert.equal(keyset.version, "0.1.1");
     assert.equal(keyset.entries.length, 11);
   });
 
-  it("carries the full matcher config the Python consumer needs", () => {
+  it("carries the full matcher config the Python consumer needs (incl. v0.1.1 list-negation params)", () => {
     assert.ok(Array.isArray(keyset.negationCues) && keyset.negationCues.length > 0);
     assert.equal(keyset.defaultNegationProximity, 6);
+    assert.equal(keyset.listNegationProximity, DEFAULT_LIST_NEGATION_PROXIMITY);
+    assert.deepEqual(keyset.clauseBreakers, [...CLAUSE_BREAKERS]);
+    assert.deepEqual(keyset.listCoordinators, [...LIST_COORDINATORS]);
     assert.deepEqual(keyset.sentenceTerminators, [".", "!", "?", ";", "\n"]);
     for (const e of keyset.entries) {
       assert.ok(e.token && e.matchType && Array.isArray(e.forms) && e.category);

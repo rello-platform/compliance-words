@@ -49,14 +49,19 @@ at a word boundary **and** none of its allowed contexts fires:
 
 | Context | Excuses the token when… |
 |---|---|
-| **negation** | a cue (`not`/`never`/`no`/`isn't`/`won't`…) sits within `proximity` words before the match, in the same sentence (`"not a guarantee"`). |
-| **compound** | the match is inside a registered fixed term (`"usda guarantee fee"`, `"rate-lock confirmation"`, `"final disclosure"`). |
-| **disclaimer-banner** | the match offset is inside a caller-supplied `disclaimerRanges` block (illustrative banners). **Fail-safe-strict**: an unmarked banner still HARD_BLOCKs. |
+| **negation** | a cue (`not`/`never`/`no`/`isn't`/`won't`…) sits within `proximity` words before the match in the same clause — **or**, since v0.1.1, within the wider `listNegationProximity` window when a comma/`or`/`nor` coordinator lies between the cue and the match, so a single cue distributes over a coordinated NOT-THAT list (`"never call it an offer, a quote, an approval, a lock, or a pre-qualification"`). The scan stops at a sentence terminator **or** a clause breaker (`so`, `but`, `because`…), so a negation never crosses into a later clause. |
+| **compound** | the match is inside a registered fixed term (`"guarantee fee"`, `"hud-approved"`, `"rate-lock confirmation"`, `"final disclosure"`). |
+| **disclaimer-banner** | the match offset is inside a caller-supplied `disclaimerRanges` block (illustrative banners). **Fail-safe-strict**: an unmarked banner still HARD_BLOCKs. (`guarantee` and `pre-qualified` gained this allowance in v0.1.1.) |
 
 `word-stem`/`word` forms match at word boundaries (so `quote` ≠ `quotient`,
 `lock` ≠ `block`, `final` ≠ `finalize`); `AI` is matched **case-sensitively**
 (`OpenAI`/`email` never match). HTML tags are masked before matching, so
 `<b>guarantee</b>` is caught while a token inside a URL/attribute is ignored.
+
+`offer` is a **phrase** matched only on its promotional collocations (`"special
+offer"`, `"limited-time offer"`, `"offer expires"`, …) — ordinary verb/participle
+uses (`"your offered rate"`, `"offer to include the family"`) are **not** flagged
+(v0.1.1 Gap 2).
 
 ## Categories
 
@@ -67,8 +72,9 @@ at a word boundary **and** none of its allowed contexts fires:
 
 The committed `dist/compliance-words-keyset.json` carries the **full vocabulary +
 context model** (forms, matchType, category, allowedContexts, negation cues,
-default proximity, sentence terminators) so a non-TS consumer (the Python
-Report-Engine) re-implements `check_compliance` over the same source of truth.
+default + list proximity, clause breakers, list coordinators, sentence
+terminators) so a non-TS consumer (the Python Report-Engine) re-implements
+`check_compliance` over the same source of truth.
 Import the subpath:
 
 ```jsonc

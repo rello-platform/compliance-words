@@ -106,6 +106,59 @@ export const NEGATION_CUES: readonly string[] = [
 /** Default words-before-match window for a `kind:'negation'` allowance. */
 export const DEFAULT_NEGATION_PROXIMITY = 6;
 
+/**
+ * List-aware negation window (Gap 3, v0.1.1). A real borrower disclaimer often
+ * coordinates many NOT-THAT items under a single negation cue —
+ * *"never call it an offer, a quote, an approval, a lock, or a pre-qualification"*
+ * (15 words from `never` to `pre-qualification`); *"not a commitment to lend or a
+ * guarantee of loan approval"* (`approval` is 10 words after `not`). The tight
+ * {@link DEFAULT_NEGATION_PROXIMITY} window of 6 excused only the first item.
+ *
+ * When a token sits beyond the base window BUT a comma / `or` / `nor` coordinator
+ * appears between it and an earlier negation cue (in the same clause — the scan
+ * stops at a sentence terminator or a {@link CLAUSE_BREAKERS} word), the single
+ * cue is treated as distributing over the whole coordinated list, up to this many
+ * words. The coordinator requirement is what keeps this from over-excusing a
+ * far-but-uncoordinated affirmative claim ("we never want you to feel pressured,
+ * so … we guarantee a great rate" — `so` is a clause breaker, the scope stops).
+ */
+export const DEFAULT_LIST_NEGATION_PROXIMITY = 18;
+
+/**
+ * Words that mark a new clause — a negation cue does NOT distribute across one.
+ * The backward negation scan stops here, so a negation in a prior clause of the
+ * same sentence cannot excuse a token in a later clause. This is the guard that
+ * makes the wider {@link DEFAULT_LIST_NEGATION_PROXIMITY} list window safe: it
+ * extends negation across a coordinated list ("a, b, or c") but never across a
+ * clause boundary ("…, so we guarantee…", "…, but we guarantee…").
+ */
+export const CLAUSE_BREAKERS: readonly string[] = [
+  "so",
+  "but",
+  "because",
+  "therefore",
+  "thus",
+  "then",
+  "however",
+  "meanwhile",
+  "while",
+  "although",
+  "though",
+  "yet",
+  "since",
+  "unless",
+  "whereas",
+];
+
+/**
+ * Coordinating words that (alongside a literal comma between words) signal a
+ * coordinated list, enabling the {@link DEFAULT_LIST_NEGATION_PROXIMITY}
+ * extension. `and` is intentionally EXCLUDED: it commonly joins independent
+ * clauses ("…and we guarantee…") where the negation must NOT distribute; real M7
+ * disclaimer lists coordinate their final item with `or`/`nor`.
+ */
+export const LIST_COORDINATORS: readonly string[] = ["or", "nor"];
+
 const NEGATION: AllowedContext = {
   kind: "negation",
   pattern: "negation cue (not|never|no|isn't|won't…) within proximity words before the match, same sentence",
@@ -132,8 +185,13 @@ export const COMPLIANCE_REGISTRY: readonly ComplianceEntry[] = [
     allowedContexts: [
       {
         kind: "compound",
-        pattern: "usda guarantee fee",
-        note: "USDA's named 'guarantee fee' is a real loan-program term, not an advertising claim.",
+        pattern: "guarantee fee",
+        note: "The named loan-program 'guarantee fee' (USDA upfront/annual guarantee fee, '0.35% annual guarantee fee') is a real fee term, not an advertising claim. Broadened from 'usda guarantee fee' to cover the abbreviated/annual label uses found in live Report-Engine template copy (m7-baseline DOMAIN_COMPOUND_SOT_GAP, pfp_prequal_summary:150).",
+      },
+      {
+        kind: "compound",
+        pattern: "mip / guarantee",
+        note: "The scenario-comparison column label 'MIP / Guarantee' (mortgage-insurance-premium vs. USDA guarantee-fee row). Live Report-Engine template label (m7-baseline DOMAIN_COMPOUND_SOT_GAP, pfp_scenario_comparison:187).",
       },
       {
         kind: "compound",
@@ -146,6 +204,7 @@ export const COMPLIANCE_REGISTRY: readonly ComplianceEntry[] = [
         note: "'not a guarantee of value' appraisal/disclosure phrasing.",
       },
       NEGATION,
+      DISCLAIMER,
     ],
     suggest: "designed to / built to",
     provenance: ["S1", "S4", "S5", "S6", "RE"],
@@ -181,7 +240,35 @@ export const COMPLIANCE_REGISTRY: readonly ComplianceEntry[] = [
     matchType: "word-stem",
     forms: ["approval", "approvals", "approved", "approve", "approves", "approving"],
     category: "HARD_BLOCK",
-    allowedContexts: [NEGATION, DISCLAIMER],
+    allowedContexts: [
+      {
+        kind: "compound",
+        pattern: "hud-approved",
+        note: "Named federal designation: a 'HUD-approved counselor' / 'HUD-approved housing counselor' / 'HUD-approved condominium' / 'HUD-approved counseling' is a real HUD status, NOT an advertising approval claim. The mandatory HECM HUD-counseling line carries it on every compliant message (live Rello HecmContent comp-hud-counseling-mandatory, obj-reverse-scams, hecm-v1 property-type rows; Milo HUD-counseling line; RE pfp_hecm_scenario_comparison:92,417). Closes DISCOVERED-MILO-COMPLIANCE-WORDS-HUD-APPROVED-COMPOUND-MISSING-260531.",
+      },
+      {
+        kind: "compound",
+        pattern: "fha-approved",
+        note: "Named federal designation: 'FHA-approved' / 'FHA/HUD-approved' condo/lender status, not an advertising claim (live Rello hecm-v1-card-property-type-eligibility:402, hecm-v1-fcn-property-type:309).",
+      },
+      {
+        kind: "compound",
+        pattern: "hud's approved list",
+        note: "Reference to HUD's published list of approved condominium projects — a domain artifact, not a borrower approval claim (live Rello hecm-v1-card-property-type-eligibility:523, hecm-v1-fcn-property-type:424).",
+      },
+      {
+        kind: "compound",
+        pattern: "single-unit approval",
+        note: "FHA Single-Unit Approval (SUA) — a named condominium-eligibility process, not a borrower approval claim (live Rello hecm-v1-card-property-type-eligibility:561).",
+      },
+      {
+        kind: "compound",
+        pattern: "condo approval",
+        note: "FHA/HUD condominium-project approval process (the 'condo-approval field'), a named eligibility step, not a borrower approval claim (live Rello hecm-v1-fcn-property-type:474).",
+      },
+      NEGATION,
+      DISCLAIMER,
+    ],
     suggest: "review / pre-eligibility (if accurate)",
     provenance: ["S1", "S2", "S3", "RE"],
   },
@@ -201,6 +288,11 @@ export const COMPLIANCE_REGISTRY: readonly ComplianceEntry[] = [
         pattern: "rate lock",
         note: "'rate lock' as a named product step in transactional/closing copy (post-event), not an affirmative pre-event claim.",
       },
+      {
+        kind: "compound",
+        pattern: "lock days",
+        note: "The rate-lock-period column label 'Lock days' in scenario-comparison copy — a transactional field, not an affirmative lock claim (live Report-Engine pfp_scenario_comparison:359).",
+      },
       NEGATION,
     ],
     suggest: "secure your rate (after a real lock)",
@@ -216,9 +308,36 @@ export const COMPLIANCE_REGISTRY: readonly ComplianceEntry[] = [
     provenance: ["S1", "S2", "S3", "RE"],
   },
   {
+    // Gap 2 (v0.1.1): the bare `offer` stem false-blocked ordinary English —
+    // "offer to include the family", "your real offered rate", "the MLO's offered
+    // HECM rate", "record it when offered", "more trust than you could offer"
+    // (live Rello fcn-expected-rate, hecm-v1-fcn-family-involved,
+    // hecm-v1-fcn-trusted-contact-phone, obj-reverse-scams; RE
+    // pfp_hecm_scenario_comparison:624). The PROHIBITED sense is the promotional
+    // marketing collocation, not the verb/participle. So `offer` is narrowed from
+    // a word-stem to a PHRASE that matches only the marketing collocations
+    // (chosen mechanism (a) of the dispatch's Gap-2 options): ordinary verb/
+    // participle uses now pass cleanly, while "limited-time offer" / "special
+    // offer" / "offer expires" still HARD_BLOCK. Residual (documented): a bare
+    // promotional NOUN with no qualifier ("here's our offer") is no longer caught
+    // — acceptable, since such copy is rare and the unambiguous claim collocations
+    // remain blocked.
     token: "offer",
-    matchType: "word-stem",
-    forms: ["offer", "offered", "offers", "offering"],
+    matchType: "phrase",
+    forms: [
+      "special offer",
+      "exclusive offer",
+      "limited offer",
+      "limited-time offer",
+      "limited time offer",
+      "one-time offer",
+      "one time offer",
+      "best offer",
+      "offer expires",
+      "offer ends",
+      "offer ends soon",
+      "act now offer",
+    ],
     category: "HARD_BLOCK",
     allowedContexts: [NEGATION, DISCLAIMER],
     suggest: "option / scenario",
@@ -238,7 +357,13 @@ export const COMPLIANCE_REGISTRY: readonly ComplianceEntry[] = [
       "prequalification",
     ],
     category: "HARD_BLOCK",
-    allowedContexts: [NEGATION],
+    // Gap 3 (v0.1.1): added DISCLAIMER so a caller-marked illustrative/disclaimer
+    // block naming 'pre-qualification' inside a NOT-THAT line passes, matching the
+    // posture of approval/quote (P3 finding). NOTE: an AFFIRMATIVE product-identity
+    // use ("Pre-Qualification Summary" title, "is pre-qualified") is deliberately
+    // NOT excused here — that is a Kelly product-policy call left OPEN (RE
+    // pfp_prequal_summary PRODUCT_JUDGMENT_SURFACED trips; see PR body HALT note).
+    allowedContexts: [NEGATION, DISCLAIMER],
     suggest: "explore your options",
     provenance: ["S2"],
   },
