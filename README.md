@@ -112,6 +112,92 @@ the gate, not in the vocabulary. The convention:
 - **HARD_BLOCK** — reject (every token except `final`).
 - **REVIEW_FLAG** — warn + allow + surface (`final`).
 
+## Lane checker — role-aware "stay in your lane" rules (DRAFT — awaiting Kelly's approval)
+
+> **STATUS: DRAFT. Default severity is `WARNING` (warn-only). Nothing here is
+> armed to HARD_BLOCK. No existing M7 gate calls the lane checker — wiring it in
+> is an explicit, opt-in step taken only after Kelly approves the phrase list
+> below.** To arm later, a consumer passes `severityFloor: "HARD_BLOCK"` to
+> `scanLaneViolations` — the SoT default stays warn-only.
+
+A nurture email is sent on behalf of **either** a real-estate **AGENT** (state RE
+license) **or** a mortgage **loan officer (MLO** — NMLS / SAFE Act). Regulators
+object when one acts in the other's lane: an agent must not originate, quote, or
+approve a loan; an MLO must not solicit a listing or act as the buyer's/seller's
+agent. The lane checker flags **cross-lane** language so it can be warned on (and,
+once approved, blocked) before the copy goes out.
+
+```ts
+import { scanLaneViolations } from "@rello-platform/compliance-words";
+
+scanLaneViolations("Lock your rate today!", "AGENT");
+// → [{ token: "lock your rate", lane: "AGENT_LANE_VIOLATION", severity: "WARNING", ... }]
+
+scanLaneViolations("List your home with me!", "MLO");
+// → [{ token: "list your home with me", lane: "MLO_LANE_VIOLATION", severity: "WARNING", ... }]
+
+scanLaneViolations("List your home with me!", "AGENT"); // → []  (in the agent's lane)
+```
+
+`role ∈ { "AGENT", "MLO", "DUAL" }`. It reuses the **same context model** as M7
+(negation / compound / disclaimer-banner excusal) over the **same shared match
+engine**, so it is conservative against false positives in exactly the same way:
+**only an offer, a solicitation, or in-lane advice in the WRONG lane is flagged.**
+General market context that BOTH roles may write is never flagged.
+
+### DUAL role
+
+A genuinely dual-licensed sender (holds **both** an RE license **and** an active
+NMLS registration) may lawfully speak in either lane, so `role: "DUAL"` **skips
+the lane checks** and returns `[]`. Applying both lanes to a dual-licensee would
+flag every legitimate sentence. The trade-off (a dual-licensee can still write
+copy that fails M7 or RESPA rules) is handled by the **independent** M7
+`checkCompliance` gate, which a consumer runs regardless of role. **Default a
+sender to their single license (AGENT or MLO); use DUAL only when dual licensure
+is verified**, so the safe default keeps lane enforcement ON. (An unrecognized
+role is fail-safe-strict — it applies BOTH lanes.)
+
+---
+
+### Banned phrases per lane — for line-by-line approval
+
+Every row below is matched as a **phrase collocation** (the offer/solicitation
+framing must be present — a bare topical noun is not enough), is excused by a
+**negation** ("I am *not* your agent…") or a **caller-marked disclaimer/referral
+block**, and defaults to **WARNING**. Each row also notes what it **deliberately
+does NOT catch** (the false-positive guard).
+
+#### AGENT lane — MLO-only language, **forbidden for an agent**
+
+| # | Rule (`token`) | Banned phrasings (any of) | Deliberately NOT caught |
+|---|---|---|---|
+| A1 | **rate offer** | "your rate is / will be / would be", "your interest rate is / will be", "we/I can offer you a rate (of)", "I can get you a rate", "we'll / I'll give you a rate", "a special / an exclusive rate of" | General market rates ("30-year rates are around 6% per Freddie Mac", "rates have come down", "ask your loan officer about current rates"). |
+| A2 | **you qualify for** | "you (may / 'll) qualify for a loan / mortgage / financing / a rate (of) / a loan amount / up to / a lower rate", "you pre-qualify for a loan" | Non-loan eligibility ("you qualify for a property-tax exemption", "homes that qualify for this program"). |
+| A3 | **approved for a loan** | "you're / you are approved (or pre-approved) for a loan / mortgage", "you're / you are pre-approved", "I/we can get you approved", "you've been approved for financing" | Non-loan approvals ("your offer was approved by the seller", "the HOA approved your application", "HUD-approved counselor"). |
+| A4 | **lock your rate** | "lock (in) your rate / interest rate", "let's / we can / I can lock your rate", "lock your rate today", "lock in a low / great rate" | Unrelated "lock" ("lock the front door", "lock box code", builder "price lock"). |
+| A5 | **refinance with me** | "refinance with me / us", "I/we can refinance you / your …", "let me / let us refinance", "refinance your loan / mortgage with me / us" | Educational refi talk ("refinancing can lower your payment", "ask your loan officer about a refinance"). |
+| A6 | **apply for a loan with me** | "apply for a loan / mortgage with me / us", "apply for your loan / mortgage with me", "start / complete your loan / mortgage application with me / us", "I/we can take your loan application" | Steering TO the MLO ("apply for a loan with your loan officer", bare "you'll need to apply for a loan"). |
+| A7 | **recommend a loan product** | "I recommend a/an FHA / VA / USDA / conventional / jumbo / fixed-rate / adjustable-rate loan or mortgage / ARM / HELOC / home-equity loan / reverse mortgage", "you should get a/an …", "the right / best loan for you is" | Naming loan types educationally without recommending one ("FHA, VA, and conventional loans are options your loan officer can explain"). |
+| A8 | **APR trigger term (Reg Z)** | "your APR / A.P.R. is / will be", "your (estimated) monthly payment is / will be", "rate(s) / APR / payment(s) as low as" | General payment illustrations; APR in a marked disclaimer. **Limitation:** keys on offer-framing words, NOT on parsing a numeric `%`/`$` figure — pair with a Reg-Z numeric scan for strict trigger-term detection. |
+
+#### MLO lane — agent-only language, **forbidden for an MLO**
+
+| # | Rule (`token`) | Banned phrasings (any of) | Deliberately NOT caught |
+|---|---|---|---|
+| M1 | **list your home with me** | "list your home / house / property with me / us", "list with me / us", "I/we can list your home", "I'll list your home", "let me list your home", "ready to list your home" | Ordinary "list" ("a checklist for closing", "the list of documents", "your listing agent can help"). |
+| M2 | **I'll sell your home** | "I'll / I will / I can sell your home / house", "we'll / we will / we can sell your home", "let me sell your home / house", "sell your home / house for you", "I'll / I can get your home sold" | Market education ("homes are selling quickly", "when you sell your home, the proceeds can pay off your loan"). |
+| M3 | **I'm your real estate agent** | "I'm / I am your real estate agent / Realtor / listing agent / agent", "as your real estate agent / Realtor / listing agent / buyer's agent", "I'll / I will be your real estate agent" | Naming the OTHER professional ("your real estate agent can help", "I'm your loan officer, not your agent"). |
+| M4 | **let me show you homes** | "let me / I can / we can / I'll show you homes / houses / properties", "schedule / book a showing with me / us", "I can schedule a showing", "let's tour some homes", "I can take you to see homes" | Education ("when you're ready to see homes, your agent can set up showings", "open houses are a great way to see homes"). |
+| M5 | **my listings** | "my listings", "my latest / new / featured / current listings", "check out / view / see / browse my listings", "my just-listed home(s)", "my new / latest / featured listing", "my listing agreement", "homes I have listed" | The bare singular "my listing of …" (a list of items), "listings on the MLS" (no possessive), "your agent's listings". |
+| M6 | **free CMA to list** | "free CMA / comparative market analysis", "get / request your free CMA", "complimentary CMA", "free home valuation to list", "what's your home worth (to) list", "I'll / I can / let me prepare a CMA", "I'll run a CMA for you", "free market analysis to sell your home" | A neutral CMA reference ("your agent can prepare a CMA", "a CMA estimates market value") — the bare phrase "comparative market analysis" alone is not a form. |
+| M7L | **represent you in the purchase or sale** | "represent you in the purchase / sale / buying / selling", "represent you in your home purchase / sale", "represent you as your agent", "I/we can / I'll / let me represent you in the purchase / sale" | Loan-side help ("represent your loan file to the underwriter"), naming the agent ("your agent represents you in the purchase"). |
+
+> **Approval workflow:** review each row above. The phrase lists and
+> false-positive guards live verbatim in `src/lanes/index.ts` (`rationale` field
+> per row) and are emitted to `dist/compliance-words-keyset.json` (`laneEntries`).
+> To **change** a row, edit the registry and rebuild. To **arm** a row to block,
+> a consumer raises the severity floor (the SoT keeps the WARNING default).
+
 ## Cross-language consumers
 
 The committed `dist/compliance-words-keyset.json` carries the **full vocabulary +
@@ -125,16 +211,29 @@ Import the subpath:
 "@rello-platform/compliance-words/compliance-words-keyset.json"
 ```
 
+The same keyset additionally carries the **lane** vocabulary + config
+(`laneEntries`, `laneConfig`) so the lane checker is also cross-language. A
+reference Python re-implementation ships in `python/lane_checker.py`
+(`scan_lane_violations`), and `python/test_lane_parity.py` runs a shared corpus
+through **both** the TS and Python scanners and asserts verdict-for-verdict
+parity — the same SoT discipline the Report-Engine M7 checker follows. (A
+v0.1.2-era consumer that only reads `entries` is unaffected — the lane block is
+purely additive.)
+
 ## Develop
 
 ```bash
 npm install
-npm run build      # tsup → dist/ (ESM + CJS + d.ts) + emits the keyset
-npm test           # build + node --test (completeness + live-evidence + edge cases)
+npm run build      # tsup → dist/ (ESM + CJS + d.ts) + emits the keyset (M7 + lanes)
+npm test           # build + node --test (M7 + lane suites) + TS<->Python lane parity
 npm run typecheck
+npm run test:parity   # just the TS<->Python lane parity run (needs python3 on PATH)
 ```
 
-`dist/` is committed; rebuild and commit it whenever `src/` changes.
+`dist/` is committed; rebuild and commit it whenever `src/` changes. `npm test`
+runs the Python lane-parity suite when `python3`/`python` is on PATH; on a
+Node-only runner it prints a notice and skips that layer (the TS suite still
+proves the TS side).
 
 ## Provenance
 

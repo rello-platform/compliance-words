@@ -1,0 +1,47 @@
+{
+  "$comment": "Shared TS<->Python parity corpus for the role-aware lane checker. Each case is run through BOTH the TS scanLaneViolations (via node) and the Python scan_lane_violations; the sorted (token, lane, severity, index) tuples MUST be identical. Mirrors the M7 parity discipline (Report-Engine tests/test_m7_lint.py ParityCorpus). Add a case here and BOTH languages must agree.",
+  "cases": [
+    { "text": "Your rate will be 5.9% — apply now.", "role": "AGENT" },
+    { "text": "We can offer you a rate of 6.1%.", "role": "AGENT" },
+    { "text": "Great news — you qualify for a loan up to $400,000.", "role": "AGENT" },
+    { "text": "Congrats, you are pre-approved for a mortgage!", "role": "AGENT" },
+    { "text": "Lock your rate today before it goes up!", "role": "AGENT" },
+    { "text": "Refinance with me and save hundreds a month.", "role": "AGENT" },
+    { "text": "Apply for a loan with me today.", "role": "AGENT" },
+    { "text": "I recommend an FHA loan for your situation.", "role": "AGENT" },
+    { "text": "Your monthly payment will be low.", "role": "AGENT" },
+    { "text": "Rates as low as you'll find anywhere.", "role": "AGENT" },
+    { "text": "Today's 30-year rates are around 6% per Freddie Mac.", "role": "AGENT" },
+    { "text": "When rates drop, refinancing may make sense — ask your loan officer.", "role": "AGENT" },
+    { "text": "Your offer was approved by the seller!", "role": "AGENT" },
+    { "text": "FHA, VA, and conventional loans are all options your lender can explain.", "role": "AGENT" },
+    { "text": "Please lock the front door after the showing.", "role": "AGENT" },
+    { "text": "I am not your loan officer and cannot lock your rate — talk to your MLO.", "role": "AGENT" },
+    { "text": "You qualify for a property-tax exemption this year.", "role": "AGENT" },
+
+    { "text": "List your home with me this spring.", "role": "MLO" },
+    { "text": "I will sell your home fast.", "role": "MLO" },
+    { "text": "As your real estate agent, I'll guide you.", "role": "MLO" },
+    { "text": "Let me show you homes this weekend.", "role": "MLO" },
+    { "text": "Check out my listings!", "role": "MLO" },
+    { "text": "My new listing just hit the market.", "role": "MLO" },
+    { "text": "Get your free CMA today.", "role": "MLO" },
+    { "text": "I can represent you in the purchase.", "role": "MLO" },
+    { "text": "Homes are selling quickly in your area.", "role": "MLO" },
+    { "text": "Your real estate agent can help you list your home.", "role": "MLO" },
+    { "text": "A comparative market analysis (CMA) estimates your home's value.", "role": "MLO" },
+    { "text": "When you sell your home, the proceeds can pay off your loan.", "role": "MLO" },
+    { "text": "Here is my listing of the documents we need for your loan.", "role": "MLO" },
+    { "text": "There are many listings on the MLS right now.", "role": "MLO" },
+    { "text": "I am not your real estate agent — I am your loan officer.", "role": "MLO" },
+
+    { "text": "List your home with me and lock your rate.", "role": "AGENT" },
+    { "text": "List your home with me and lock your rate.", "role": "MLO" },
+    { "text": "List your home with me and lock your rate.", "role": "DUAL" },
+    { "text": "List your home with me and lock your rate.", "role": "BOGUS" },
+
+    { "text": "<b>Lock your rate</b> now!", "role": "AGENT" },
+    { "text": "<a href=\"https://x.com/lock-your-rate\">info</a>", "role": "AGENT" },
+    { "text": "", "role": "AGENT" }
+  ]
+}

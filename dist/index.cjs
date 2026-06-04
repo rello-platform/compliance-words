@@ -25,11 +25,16 @@ __export(index_exports, {
   COMPLIANCE_TOKEN_SET: () => COMPLIANCE_TOKEN_SET,
   DEFAULT_LIST_NEGATION_PROXIMITY: () => DEFAULT_LIST_NEGATION_PROXIMITY,
   DEFAULT_NEGATION_PROXIMITY: () => DEFAULT_NEGATION_PROXIMITY,
+  LANE_REGISTRY: () => LANE_REGISTRY,
+  LANE_TOKEN_SET: () => LANE_TOKEN_SET,
   LIST_COORDINATORS: () => LIST_COORDINATORS,
   NEGATION_CUES: () => NEGATION_CUES,
   checkCompliance: () => checkCompliance,
   hasHardBlock: () => hasHardBlock,
-  listComplianceEntries: () => listComplianceEntries
+  hasLaneViolation: () => hasLaneViolation,
+  listComplianceEntries: () => listComplianceEntries,
+  listLaneEntries: () => listLaneEntries,
+  scanLaneViolations: () => scanLaneViolations
 });
 module.exports = __toCommonJS(index_exports);
 
@@ -412,7 +417,7 @@ function listComplianceEntries() {
   return COMPLIANCE_REGISTRY;
 }
 
-// src/check.ts
+// src/match-engine.ts
 var WORD_CHAR = "A-Za-z0-9";
 var BOUNDARY_BEFORE = `(?<![${WORD_CHAR}])`;
 var BOUNDARY_AFTER = `(?![${WORD_CHAR}])`;
@@ -449,14 +454,13 @@ function compileFormPattern(form, matchType) {
   if (matchType === "phrase") return compilePhrasePattern(form);
   return BOUNDARY_BEFORE + escapeRegex(form) + BOUNDARY_AFTER;
 }
-var COMPILED = COMPLIANCE_REGISTRY.map((entry) => {
+function compileMatcher(entry) {
   const caseSensitive = entry.matchType === "word";
   const flags = caseSensitive ? "g" : "gi";
   const tokenPattern = entry.forms.map((f) => compileFormPattern(f, entry.matchType)).join("|");
   const compoundRegexes = entry.allowedContexts.filter((c) => c.kind === "compound").map((c) => new RegExp(compilePhrasePattern(c.pattern), "gi"));
   const negation = entry.allowedContexts.find((c) => c.kind === "negation");
   return {
-    entry,
     tokenRegex: new RegExp(tokenPattern, flags),
     compoundRegexes,
     hasNegation: Boolean(negation),
@@ -464,7 +468,7 @@ var COMPILED = COMPLIANCE_REGISTRY.map((entry) => {
     listNegationProximity: DEFAULT_LIST_NEGATION_PROXIMITY,
     hasDisclaimer: entry.allowedContexts.some((c) => c.kind === "disclaimer-banner")
   };
-});
+}
 function maskHtml(text) {
   return text.replace(/<[^>]*>/g, (m) => " ".repeat(m.length));
 }
@@ -512,6 +516,38 @@ function withinAnyRange(offset, ranges) {
 function withinAnyCompound(offset, spans) {
   return spans.some(([start, end]) => offset >= start && offset < end);
 }
+function runMatcher(compiled, text, masked, words, disclaimerRanges) {
+  const out = [];
+  const compoundSpans = [];
+  for (const cre of compiled.compoundRegexes) {
+    cre.lastIndex = 0;
+    let cm;
+    while ((cm = cre.exec(masked)) !== null) {
+      compoundSpans.push([cm.index, cm.index + cm[0].length]);
+      if (cm.index === cre.lastIndex) cre.lastIndex++;
+    }
+  }
+  compiled.tokenRegex.lastIndex = 0;
+  let m;
+  while ((m = compiled.tokenRegex.exec(masked)) !== null) {
+    const index = m.index;
+    const matchedText = text.slice(index, index + m[0].length);
+    if (compiled.tokenRegex.lastIndex === index) compiled.tokenRegex.lastIndex++;
+    if (withinAnyCompound(index, compoundSpans)) continue;
+    if (compiled.hasDisclaimer && withinAnyRange(index, disclaimerRanges)) continue;
+    if (compiled.hasNegation && isNegated(masked, words, index, compiled.negationProximity, compiled.listNegationProximity)) {
+      continue;
+    }
+    out.push({ index, matchedText });
+  }
+  return out;
+}
+
+// src/check.ts
+var COMPILED = COMPLIANCE_REGISTRY.map((entry) => ({
+  entry,
+  matcher: compileMatcher(entry)
+}));
 function buildMessage(entry, matchedText, index) {
   const base = `\u2717 ${entry.category}: "${matchedText}" is M7 prohibited language ("${entry.token}") at offset ${index}`;
   return entry.suggest ? `${base} \u2192 use "${entry.suggest}" instead` : base;
@@ -521,34 +557,15 @@ function checkCompliance(text, opts = {}) {
   const masked = maskHtml(text);
   const words = indexWords(masked);
   const violations = [];
-  for (const compiled of COMPILED) {
-    const compoundSpans = [];
-    for (const cre of compiled.compoundRegexes) {
-      cre.lastIndex = 0;
-      let cm;
-      while ((cm = cre.exec(masked)) !== null) {
-        compoundSpans.push([cm.index, cm.index + cm[0].length]);
-        if (cm.index === cre.lastIndex) cre.lastIndex++;
-      }
-    }
-    compiled.tokenRegex.lastIndex = 0;
-    let m;
-    while ((m = compiled.tokenRegex.exec(masked)) !== null) {
-      const index = m.index;
-      const matchedText = text.slice(index, index + m[0].length);
-      if (compiled.tokenRegex.lastIndex === index) compiled.tokenRegex.lastIndex++;
-      if (withinAnyCompound(index, compoundSpans)) continue;
-      if (compiled.hasDisclaimer && withinAnyRange(index, opts.disclaimerRanges)) continue;
-      if (compiled.hasNegation && isNegated(masked, words, index, compiled.negationProximity, compiled.listNegationProximity)) {
-        continue;
-      }
+  for (const { entry, matcher } of COMPILED) {
+    for (const { index, matchedText } of runMatcher(matcher, text, masked, words, opts.disclaimerRanges)) {
       violations.push({
-        token: compiled.entry.token,
-        category: compiled.entry.category,
+        token: entry.token,
+        category: entry.category,
         index,
         matchedText,
-        suggest: compiled.entry.suggest,
-        message: buildMessage(compiled.entry, matchedText, index)
+        suggest: entry.suggest,
+        message: buildMessage(entry, matchedText, index)
       });
     }
   }
@@ -562,6 +579,483 @@ function checkCompliance(text, opts = {}) {
 function hasHardBlock(text, opts = {}) {
   return checkCompliance(text, { ...opts, categories: ["HARD_BLOCK"] }).length > 0;
 }
+
+// src/lanes/index.ts
+var NEGATION2 = {
+  kind: "negation",
+  pattern: "negation cue (not|never|no|isn't|won't\u2026) within proximity words before the match, same clause",
+  note: "A negated / NOT-THAT use is in-lane meta-copy, not a cross-lane act. E.g. an agent writing 'I am not your loan officer and cannot lock your rate \u2014 talk to your MLO' names the wrong-lane phrase only to disclaim it. Same affirmative-vs-NOT-THAT rule as M7."
+};
+var DISCLAIMER2 = {
+  kind: "disclaimer-banner",
+  pattern: "match offset within a caller-supplied disclaimerRanges block",
+  note: "An explicitly-marked educational/referral disclaimer block (e.g. 'For loan questions, your loan officer can help you apply for a loan and lock your rate.') legitimately names the other lane's actions when steering the recipient TO that professional. The caller marks the range; fail-safe-strict if it does not."
+};
+var LANE_REGISTRY = [
+  // ════════════════════════════════════════════════════════════════════════
+  // AGENT_LANE_VIOLATION — MLO-only language an AGENT must not use.
+  // ════════════════════════════════════════════════════════════════════════
+  {
+    token: "rate offer",
+    lane: "AGENT_LANE_VIOLATION",
+    matchType: "phrase",
+    // A possessive/offer-framed rate QUOTE. The framing word ("your"/"a special"/
+    // "we can offer you"/"I can get you"/"lock in") is REQUIRED so a bare market-
+    // rate statement is not caught (see rationale).
+    forms: [
+      "your rate will be",
+      "your rate is",
+      "your interest rate will be",
+      "your interest rate is",
+      "we can offer you a rate",
+      "we can offer you a rate of",
+      "i can offer you a rate",
+      "i can get you a rate",
+      "we'll give you a rate",
+      "i'll give you a rate",
+      "a special rate of",
+      "an exclusive rate of",
+      "your rate would be"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Quoting a SPECIFIC interest rate as a personal offer is loan origination \u2014 an MLO act under the SAFE Act. Forbidden for an agent. DELIBERATELY NOT CAUGHT (false-positive guards): general market context an agent may freely cite \u2014 'today's 30-year rates are around 6% per Freddie Mac', 'rates have come down', 'when rates drop you may want to refinance', 'ask your loan officer about current rates'. Only the possessive/first-person OFFER framing ('your rate is\u2026', 'we can offer you a rate of\u2026') trips this row.",
+    suggest: "refer the recipient to their loan officer for any rate quote"
+  },
+  {
+    token: "you qualify for",
+    lane: "AGENT_LANE_VIOLATION",
+    matchType: "phrase",
+    forms: [
+      "you qualify for a rate",
+      "you qualify for a rate of",
+      "you qualify for a loan",
+      "you qualify for a mortgage",
+      "you qualify for financing",
+      "you qualify for a loan amount",
+      "you qualify for up to",
+      "you qualify for a lower rate",
+      "you'll qualify for a loan",
+      "you may qualify for a loan",
+      "you may qualify for a mortgage",
+      "you pre-qualify for a loan"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Telling a consumer they 'qualify for' a loan / a rate / a loan amount is a credit-eligibility determination \u2014 an MLO act. Forbidden for an agent. DELIBERATELY NOT CAUGHT: non-loan eligibility an agent legitimately discusses \u2014 'you qualify for a property-tax exemption', 'homes that qualify for this program', 'you qualify for our VIP buyer list'. Only loan/mortgage/rate/financing qualification framing trips this row.",
+    suggest: "refer the recipient to their loan officer to discuss loan eligibility"
+  },
+  {
+    token: "approved for a loan",
+    lane: "AGENT_LANE_VIOLATION",
+    matchType: "phrase",
+    forms: [
+      "you're approved for a loan",
+      "you are approved for a loan",
+      "you're approved for a mortgage",
+      "you are approved for a mortgage",
+      "you're pre-approved",
+      "you are pre-approved",
+      "you're pre-approved for a loan",
+      "you are pre-approved for a loan",
+      "you're pre-approved for a mortgage",
+      "you are pre-approved for a mortgage",
+      "i can get you approved",
+      "we can get you approved",
+      "you've been approved for financing",
+      "you have been approved for financing"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Stating that a consumer is 'approved' or 'pre-approved' for a loan/mortgage is a credit decision \u2014 an MLO/lender act. Forbidden for an agent. (Note: M7 also blocks bare borrower-facing 'approved' claims; this lane row is the role-scoped, MLO-only sense \u2014 distinct gate.) DELIBERATELY NOT CAUGHT: non-loan approvals an agent handles \u2014 'your offer was approved by the seller', 'the HOA approved your application', 'HUD-approved counselor' (M7 compound). Only loan/mortgage/financing pre-approval framing trips this row.",
+    suggest: "refer the recipient to their loan officer for any pre-approval"
+  },
+  {
+    token: "lock your rate",
+    lane: "AGENT_LANE_VIOLATION",
+    matchType: "phrase",
+    forms: [
+      "lock your rate",
+      "lock in your rate",
+      "lock your interest rate",
+      "lock in your interest rate",
+      "let's lock your rate",
+      "we can lock your rate",
+      "i can lock your rate",
+      "lock your rate today",
+      "lock in a low rate",
+      "lock in a great rate"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Offering to lock a borrower's interest rate is a loan-origination act controlled by the lender/MLO. Forbidden for an agent. (M7 also blocks the bare borrower-facing 'lock' claim; this is the role-scoped sense.) DELIBERATELY NOT CAUGHT: unrelated 'lock' uses \u2014 'lock the front door at a showing', 'lock box code', 'price lock' on a new-construction contract (an agent matter). Only the rate-lock OFFER collocation trips this row.",
+    suggest: "your loan officer handles rate locks \u2014 refer the recipient to them"
+  },
+  {
+    token: "refinance with me",
+    lane: "AGENT_LANE_VIOLATION",
+    matchType: "phrase",
+    forms: [
+      "refinance with me",
+      "refinance with us",
+      "i can refinance you",
+      "we can refinance you",
+      "i can refinance your",
+      "we can refinance your",
+      "let me refinance",
+      "let us refinance",
+      "refinance your loan with me",
+      "refinance your mortgage with me",
+      "refinance your loan with us",
+      "refinance your mortgage with us"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Soliciting a refinance as the originator ('refinance with me') is an MLO act. Forbidden for an agent. DELIBERATELY NOT CAUGHT: educational refi talk an agent may write \u2014 'refinancing can lower your payment', 'when rates drop, refinancing may make sense', 'ask your loan officer about a refinance'. Only the first-person ORIGINATOR solicitation ('refinance with me/us', 'I can refinance you') trips this row.",
+    suggest: "talk to your loan officer about refinancing options"
+  },
+  {
+    token: "apply for a loan with me",
+    lane: "AGENT_LANE_VIOLATION",
+    matchType: "phrase",
+    forms: [
+      "apply for a loan with me",
+      "apply for a loan with us",
+      "apply for a mortgage with me",
+      "apply for a mortgage with us",
+      "apply for your loan with me",
+      "apply for your mortgage with me",
+      "start your loan application with me",
+      "start your loan application with us",
+      "start your mortgage application with me",
+      "complete your loan application with me",
+      "i can take your loan application",
+      "we can take your loan application"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Taking a loan/mortgage application is the defining MLO act under the SAFE Act. Forbidden for an agent. DELIBERATELY NOT CAUGHT: an agent steering the borrower TO the MLO \u2014 'apply for a loan with your loan officer', 'your lender can help you apply' (and the explicit referral-disclaimer-banner allowance). Only the first-person 'with me/us' origination collocation trips this row, so a bare educational 'you'll need to apply for a loan' is not flagged.",
+    suggest: "your loan officer takes loan applications \u2014 refer the recipient to them"
+  },
+  {
+    token: "recommend a loan product",
+    lane: "AGENT_LANE_VIOLATION",
+    matchType: "phrase",
+    forms: [
+      "i recommend an fha loan",
+      "i recommend a va loan",
+      "i recommend a usda loan",
+      "i recommend a conventional loan",
+      "i recommend a jumbo loan",
+      "i recommend an arm",
+      "i recommend a heloc",
+      "i recommend a home equity loan",
+      "i recommend a reverse mortgage",
+      "you should get an fha loan",
+      "you should get a va loan",
+      "you should get a conventional loan",
+      "you should get a heloc",
+      "you should get an arm",
+      "the right loan for you is",
+      "the best loan for you is",
+      "i'd recommend a fixed-rate mortgage",
+      "i recommend a fixed-rate mortgage",
+      "i recommend an adjustable-rate mortgage"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Recommending a SPECIFIC loan product/program to a consumer is loan advice reserved to an MLO. Forbidden for an agent. DELIBERATELY NOT CAUGHT: an agent NAMING loan types educationally without recommending one \u2014 'FHA, VA, and conventional loans are all options your loan officer can explain', 'ask your lender which program fits'. Only the first-person RECOMMENDATION collocation ('I recommend a \u2026', 'you should get a \u2026', 'the right loan for you is \u2026') trips this row.",
+    suggest: "your loan officer advises on loan products \u2014 refer the recipient to them"
+  },
+  {
+    token: "apr trigger term",
+    lane: "AGENT_LANE_VIOLATION",
+    matchType: "phrase",
+    // Reg Z (12 CFR §1026.24) trigger terms: an APR figure or a specific monthly-
+    // payment figure stated as a consumer-credit OFFER. The numeric token is
+    // matched by a phrase 'apr' / 'a.p.r.' collocation. A bare APR figure in a
+    // disclosure (or an agent quoting "the APR was disclosed at closing") is
+    // out-of-scope; the framing words ('your'/'only'/'as low as'/'just') carry the
+    // offer sense.
+    // NOTE on matching: the shared phrase matcher requires the form's words to be
+    // adjacent (separated only by non-word chars), so a form like "only … per
+    // month" with a NUMBER between would NOT match (the digits are word chars).
+    // We therefore key on adjacent-word offer collocations only ("your apr will
+    // be", "rates as low as", "payment as low as"), and DOCUMENT that strict
+    // numeric APR/payment detection is the consumer's own Reg-Z scan (see note).
+    forms: [
+      "your apr will be",
+      "your apr is",
+      "your a.p.r. will be",
+      "your monthly payment will be",
+      "your monthly payment is",
+      "your estimated monthly payment will be",
+      "your estimated payment will be",
+      "rates as low as",
+      "rate as low as",
+      "apr as low as",
+      "payments as low as",
+      "payment as low as",
+      "monthly payments as low as"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Reg Z (TILA, 12 CFR \xA71026.24) governs consumer-credit advertising 'trigger terms' \u2014 a stated APR or specific monthly payment as an OFFER pulls in mandatory disclosures only a lender/MLO can make. Forbidden for an agent. DELIBERATELY NOT CAUGHT: general payment math an agent may show generically \u2014 'a rough rule of thumb is principal-and-interest of about $X per $100k' framed as illustration, or APR named in a marked disclaimer block. Only the possessive ('your APR/payment will be') and 'as low as' OFFER framing trips this row. IMPORTANT LIMITATION: this row keys on offer-framing collocations, NOT on parsing a numeric percentage or dollar figure (the shared phrase matcher cannot span a number) \u2014 a downstream consumer that wants strict numeric APR/payment trigger-term detection MUST pair this with its own Reg-Z numeric scan.",
+    suggest: "loan pricing/APR comes from the loan officer \u2014 omit or refer"
+  },
+  // ════════════════════════════════════════════════════════════════════════
+  // MLO_LANE_VIOLATION — agent-only language an MLO must not use.
+  // ════════════════════════════════════════════════════════════════════════
+  {
+    token: "list your home with me",
+    lane: "MLO_LANE_VIOLATION",
+    matchType: "phrase",
+    forms: [
+      "list your home with me",
+      "list your home with us",
+      "list your house with me",
+      "list your house with us",
+      "list your property with me",
+      "list your property with us",
+      "list with me",
+      "list with us",
+      "i can list your home",
+      "we can list your home",
+      "i'll list your home",
+      "let me list your home",
+      "ready to list your home"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Soliciting a listing ('list your home with me') is brokerage activity requiring a real-estate license \u2014 forbidden for an MLO. DELIBERATELY NOT CAUGHT: ordinary 'list' uses an MLO may write \u2014 'a checklist for closing', 'the list of documents we need', 'your listing agent can help' (steering to the agent). Only the first-person listing SOLICITATION collocation trips this row.",
+    suggest: "refer the recipient to their real-estate agent to list a home"
+  },
+  {
+    token: "i'll sell your home",
+    lane: "MLO_LANE_VIOLATION",
+    matchType: "phrase",
+    forms: [
+      "i'll sell your home",
+      "i will sell your home",
+      "i can sell your home",
+      "we'll sell your home",
+      "we will sell your home",
+      "we can sell your home",
+      "i'll sell your house",
+      "i can sell your house",
+      "let me sell your home",
+      "let me sell your house",
+      "sell your home for you",
+      "sell your house for you",
+      "i'll get your home sold",
+      "i can get your home sold"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Offering to sell a consumer's home is brokerage activity \u2014 forbidden for an MLO. DELIBERATELY NOT CAUGHT: market-education an MLO may write \u2014 'homes are selling quickly in your area', 'when you sell your home, the proceeds can pay off your loan', 'your agent can help you sell'. Only the first-person OFFER-TO-SELL collocation ('I'll/I can sell your home', 'sell your home for you') trips this row.",
+    suggest: "refer the recipient to their real-estate agent to sell a home"
+  },
+  {
+    token: "i'm your real estate agent",
+    lane: "MLO_LANE_VIOLATION",
+    matchType: "phrase",
+    forms: [
+      "i'm your real estate agent",
+      "i am your real estate agent",
+      "i'm your realtor",
+      "i am your realtor",
+      "as your real estate agent",
+      "as your realtor",
+      "as your listing agent",
+      "as your buyer's agent",
+      "i'm your listing agent",
+      "i am your listing agent",
+      "i'll be your real estate agent",
+      "i will be your real estate agent",
+      "i'm your agent",
+      "i am your agent"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Claiming to be the consumer's real-estate agent / Realtor / listing agent is holding oneself out as licensed brokerage \u2014 forbidden for an MLO. DELIBERATELY NOT CAUGHT: an MLO naming the OTHER professional \u2014 'your real estate agent can help with that', 'work with your agent on the offer', 'I'm your loan officer, not your agent' (negation). Only the FIRST-PERSON identity claim ('I'm/I am/as your \u2026 agent/Realtor') trips this row. Edge: bare 'I'm your agent' is included because in an MLO-authored email it is a cross-lane identity claim; an MLO who means 'loan agent' should write 'loan officer'.",
+    suggest: "identify yourself as the loan officer; name the agent as a separate professional"
+  },
+  {
+    token: "let me show you homes",
+    lane: "MLO_LANE_VIOLATION",
+    matchType: "phrase",
+    forms: [
+      "let me show you homes",
+      "let me show you houses",
+      "let me show you some homes",
+      "let me show you properties",
+      "i can show you homes",
+      "i can show you houses",
+      "we can show you homes",
+      "i'll show you homes",
+      "i'll show you houses",
+      "schedule a showing with me",
+      "schedule a showing with us",
+      "book a showing with me",
+      "i can schedule a showing",
+      "let's tour some homes",
+      "i can take you to see homes"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Offering to show homes / schedule showings is brokerage activity \u2014 forbidden for an MLO. DELIBERATELY NOT CAUGHT: education an MLO may write \u2014 'when you're ready to see homes, your agent can set up showings', 'open houses are a great way to see homes'. Only the first-person OFFER-TO-SHOW collocation ('let me/I can show you homes', 'schedule a showing with me') trips this row.",
+    suggest: "refer the recipient to their real-estate agent for showings"
+  },
+  {
+    token: "my listings",
+    lane: "MLO_LANE_VIOLATION",
+    matchType: "phrase",
+    // The PLURAL "my listings" is unambiguously real-estate inventory. The bare
+    // SINGULAR "my listing" is NOT a form here — it collides with the ordinary
+    // sense "my listing of the documents" (a list of items). The property sense
+    // of the singular is carried by explicit collocations ("my new listing", "my
+    // listing agreement", "my just-listed home").
+    forms: [
+      "my listings",
+      "my latest listings",
+      "my new listings",
+      "my featured listings",
+      "my current listings",
+      "check out my listings",
+      "view my listings",
+      "see my listings",
+      "browse my listings",
+      "my just-listed homes",
+      "my just-listed home",
+      "my new listing",
+      "my latest listing",
+      "my featured listing",
+      "my listing agreement",
+      "homes i have listed"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Advertising 'my listings' represents the sender as the listing broker \u2014 forbidden for an MLO. DELIBERATELY NOT CAUGHT: non-real-estate 'listing' uses \u2014 the bare singular 'my listing of required documents' (a list of items; the bare singular 'my listing' is intentionally NOT a form), 'the listings on the MLS' (no possessive), 'your agent's listings'. Only the FIRST-PERSON POSSESSIVE PLURAL 'my listings' and unambiguous property collocations ('my new listing', 'my listing agreement', 'my just-listed home') trip this row.",
+    suggest: "do not advertise property listings; refer the recipient to their agent"
+  },
+  {
+    token: "free cma to list",
+    lane: "MLO_LANE_VIOLATION",
+    matchType: "phrase",
+    // A CMA (comparative market analysis) presented as a LISTING SOLICITATION.
+    // A bare "comparative market analysis" mention is NOT caught — an MLO may
+    // reference that a CMA exists; the solicitation framing is what crosses lanes.
+    forms: [
+      "free cma",
+      "free comparative market analysis",
+      "get your free cma",
+      "request your free cma",
+      "free home valuation to list",
+      "what's your home worth list",
+      "i'll prepare a cma to list",
+      "i can prepare a cma",
+      "let me prepare a cma",
+      "i'll run a cma for you",
+      "free market analysis to sell your home",
+      "complimentary cma"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Offering a free CMA / home valuation as a listing-solicitation hook is a brokerage prospecting act \u2014 forbidden for an MLO. DELIBERATELY NOT CAUGHT: an MLO referencing a CMA neutrally \u2014 'your agent can prepare a comparative market analysis (CMA)', 'a CMA estimates market value'. Only the SOLICITATION framing ('free CMA', 'request your free CMA', 'I'll prepare a CMA to list') trips this row. NOTE: the bare phrase 'comparative market analysis' (educational) is intentionally NOT a form here \u2014 only the 'free'/'I'll prepare'/'to list' solicitation collocations are.",
+    suggest: "refer the recipient to their agent for a CMA or home valuation"
+  },
+  {
+    token: "represent you in the purchase or sale",
+    lane: "MLO_LANE_VIOLATION",
+    matchType: "phrase",
+    forms: [
+      "represent you in the purchase",
+      "represent you in the sale",
+      "represent you in the purchase or sale",
+      "represent you in buying",
+      "represent you in selling",
+      "represent you as your agent",
+      "i can represent you in the purchase",
+      "i can represent you in the sale",
+      "i'll represent you in the purchase",
+      "i'll represent you in the sale",
+      "let me represent you in the purchase",
+      "let me represent you in the sale",
+      "represent you in your home purchase",
+      "represent you in your home sale"
+    ],
+    severity: "WARNING",
+    allowedContexts: [NEGATION2, DISCLAIMER2],
+    rationale: "Offering to 'represent' a consumer in a real-estate purchase or sale is agency/brokerage representation \u2014 forbidden for an MLO. DELIBERATELY NOT CAUGHT: an MLO describing loan-side representation/help \u2014 'represent your loan file to the underwriter' (not a real-estate-agency act), 'your agent represents you in the purchase' (naming the other professional). Only the first-person 'represent you in the purchase/sale/buying/selling' collocation trips this row.",
+    suggest: "the real-estate agent represents the buyer/seller \u2014 refer the recipient to them"
+  }
+];
+var LANE_TOKEN_SET = new Set(
+  LANE_REGISTRY.map((e) => e.token)
+);
+function listLaneEntries(lane) {
+  return lane ? LANE_REGISTRY.filter((e) => e.lane === lane) : LANE_REGISTRY;
+}
+
+// src/lanes/scan.ts
+var COMPILED2 = LANE_REGISTRY.map((entry) => ({
+  entry,
+  matcher: compileMatcher(entry)
+}));
+var SEVERITY_RANK = {
+  REVIEW_FLAG: 0,
+  WARNING: 1,
+  HARD_BLOCK: 2
+};
+function applyFloor(rowSeverity, floor) {
+  if (!floor) return rowSeverity;
+  return SEVERITY_RANK[floor] > SEVERITY_RANK[rowSeverity] ? floor : rowSeverity;
+}
+function lanesForRole(role) {
+  switch (role) {
+    case "AGENT":
+      return ["AGENT_LANE_VIOLATION"];
+    case "MLO":
+      return ["MLO_LANE_VIOLATION"];
+    case "DUAL":
+      return [];
+    default:
+      return ["AGENT_LANE_VIOLATION", "MLO_LANE_VIOLATION"];
+  }
+}
+function buildMessage2(entry, matchedText, index, severity) {
+  const laneLabel = entry.lane === "AGENT_LANE_VIOLATION" ? "MLO-only language in an agent's copy" : "agent-only language in an MLO's copy";
+  const base = `\u26A0 ${severity} [lane]: "${matchedText}" is ${laneLabel} ("${entry.token}") at offset ${index}`;
+  return entry.suggest ? `${base} \u2192 ${entry.suggest}` : base;
+}
+function scanLaneViolations(text, role, opts = {}) {
+  if (typeof text !== "string" || text.length === 0) return [];
+  const applicable = new Set(lanesForRole(role));
+  if (applicable.size === 0) return [];
+  const masked = maskHtml(text);
+  const words = indexWords(masked);
+  const violations = [];
+  for (const { entry, matcher } of COMPILED2) {
+    if (!applicable.has(entry.lane)) continue;
+    for (const { index, matchedText } of runMatcher(matcher, text, masked, words, opts.disclaimerRanges)) {
+      const severity = applyFloor(entry.severity, opts.severityFloor);
+      violations.push({
+        token: entry.token,
+        lane: entry.lane,
+        severity,
+        index,
+        matchedText,
+        suggest: entry.suggest,
+        message: buildMessage2(entry, matchedText, index, severity)
+      });
+    }
+  }
+  violations.sort((a, b) => a.index - b.index || a.token.localeCompare(b.token));
+  return violations;
+}
+function hasLaneViolation(text, role, opts = {}) {
+  return scanLaneViolations(text, role, opts).length > 0;
+}
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   CLAUSE_BREAKERS,
@@ -569,10 +1063,15 @@ function hasHardBlock(text, opts = {}) {
   COMPLIANCE_TOKEN_SET,
   DEFAULT_LIST_NEGATION_PROXIMITY,
   DEFAULT_NEGATION_PROXIMITY,
+  LANE_REGISTRY,
+  LANE_TOKEN_SET,
   LIST_COORDINATORS,
   NEGATION_CUES,
   checkCompliance,
   hasHardBlock,
-  listComplianceEntries
+  hasLaneViolation,
+  listComplianceEntries,
+  listLaneEntries,
+  scanLaneViolations
 });
 //# sourceMappingURL=index.cjs.map

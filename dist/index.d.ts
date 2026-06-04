@@ -126,7 +126,7 @@ declare const COMPLIANCE_TOKEN_SET: ReadonlySet<string>;
 declare function listComplianceEntries(): readonly ComplianceEntry[];
 
 /**
- * The context-aware compliance checker — NOT a substring scan.
+ * The context-aware M7 prohibited-language checker — NOT a substring scan.
  *
  * A token produces a `Violation` ONLY IF it matches at a word boundary AND none
  * of its `allowedContexts` fires (negation / fixed-compound / caller-marked
@@ -135,14 +135,10 @@ declare function listComplianceEntries(): readonly ComplianceEntry[];
  * illustrative banner pass, while a real affirmative claim ("we guarantee
  * approval") fails.
  *
- * Matching contract (spec §The matching contract):
- *   1. Tokenize on word boundaries. `word-stem`/`word` match enumerated forms at a
- *      boundary (never substring). `phrase` matches the ordered word sequence with
- *      intervening whitespace/punctuation. `AI` is matched CASE-SENSITIVELY.
- *   2. Negation — a cue within `proximity` words before the match (same sentence).
- *   3. Compound — the match sits inside a registered fixed compound.
- *   4. Disclaimer-banner — the match offset is inside a caller-supplied range.
- *   5. Otherwise → emit a Violation (category + suggest + actionable message).
+ * The matching mechanics (tokenize / mask-HTML / compile / negation-compound-
+ * disclaimer excusal) live in `src/match-engine.ts` — the single shared engine
+ * also used by the role-aware lane checker (`src/lanes.ts`). This module is the
+ * M7-vocabulary-specific decoration over that engine.
  *
  * Pure function over text; no tenant data, no I/O, no throw on bad input.
  */
@@ -174,4 +170,161 @@ declare function checkCompliance(text: string, opts?: CheckOptions): readonly Vi
 /** True iff `text` contains at least one HARD_BLOCK violation. */
 declare function hasHardBlock(text: string, opts?: CheckOptions): boolean;
 
-export { type AllowedContext, CLAUSE_BREAKERS, COMPLIANCE_REGISTRY, COMPLIANCE_TOKEN_SET, type CheckOptions, type ComplianceCategory, type ComplianceEntry, DEFAULT_LIST_NEGATION_PROXIMITY, DEFAULT_NEGATION_PROXIMITY, LIST_COORDINATORS, type MatchType, NEGATION_CUES, type Violation, checkCompliance, hasHardBlock, listComplianceEntries };
+/**
+ * @rello-platform/compliance-words — the role-aware LANE registry (DRAFT).
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * STATUS: DRAFT for Kelly's review. Defaults to WARNING severity (NOT
+ * HARD_BLOCK) and is gated OFF by default in the scanner (`scanLaneViolations`
+ * applies it; no existing M7 gate calls it). Do NOT arm hard-blocking until
+ * Kelly approves the per-lane banned-phrase list (see README § Lane checker).
+ * ───────────────────────────────────────────────────────────────────────────
+ *
+ * WHAT THIS IS. A nurture email is sent on behalf of EITHER a real-estate AGENT
+ * (state RE license) OR a mortgage loan officer (MLO — NMLS / SAFE Act).
+ * Regulators object when one acts in the other's lane ("stay in your lane"): an
+ * agent must not originate/quote/approve a loan; an MLO must not solicit a
+ * listing or act as the buyer's/seller's agent. This registry flags CROSS-LANE
+ * language so a downstream gate can warn (and, once Kelly approves, block) before
+ * the copy goes out.
+ *
+ * SAME ARCHITECTURE AS M7. Each lane row is a `LaneEntry` that reuses the exact
+ * `ComplianceEntry` matching model — `matchType` (`word-stem`/`phrase`/`word`),
+ * explicit `forms`, and the `allowedContexts` excusal model (negation / compound
+ * / disclaimer-banner). It runs over the SAME shared match engine
+ * (`src/match-engine.ts`) as `checkCompliance`, so the two checkers can never
+ * drift, and the Python re-implementation mirrors one algorithm. The ONLY new
+ * fields are `lane` (which role the phrase is forbidden FOR) and a default
+ * `severity`.
+ *
+ * THE CONSERVATIVE-AGAINST-FALSE-POSITIVES BAR (the load-bearing design choice).
+ * General market context is NOT a lane violation. "30-year rates are around 6%
+ * per Freddie Mac", "rates have come down lately", "list price", "the homes on
+ * the market", "a comparative market analysis is a useful tool" — these are
+ * ordinary, in-lane, educational copy that BOTH roles may write. Only an OFFER,
+ * a SOLICITATION, or in-lane ADVICE in the WRONG lane is flagged. We achieve this
+ * the same way M7's Gap-2 narrowed bare `offer` to its promotional collocations:
+ * every lane row matches a PHRASE collocation that carries the offer/solicitation
+ * framing (a possessive "your", a first-person "I/we ... you", an imperative
+ * "apply/list/lock"), never a bare topical noun. Edge cases are documented inline
+ * per row.
+ *
+ * NOT borrower-vs-not — role-vs-role. M7 asks "is this borrower-facing copy a
+ * prohibited claim?"; the lane check asks "does this copy speak in the other
+ * profession's voice?". The two are orthogonal and composable: a string can be
+ * M7-clean yet cross-lane ("I'll sell your home" — no M7 token, but an MLO must
+ * not say it), or both. A consumer runs whichever gates apply to the surface.
+ */
+
+/**
+ * Which professional lane a phrase BELONGS to — i.e. which role is FORBIDDEN
+ * from using it.
+ * - `AGENT_LANE_VIOLATION`: language only an MLO may use → FORBIDDEN for an
+ *   AGENT (rate offers, "you qualify for X%", loan approvals, "lock your rate",
+ *   "apply for a loan", recommending loan products, APR/payment trigger terms).
+ * - `MLO_LANE_VIOLATION`: language only an agent may use → FORBIDDEN for an MLO
+ *   ("list your home with me", "I'll sell your home", "I'm your agent", "let me
+ *   show you homes", "my listings", CMA-as-listing-solicitation, "represent you
+ *   in the purchase/sale").
+ */
+type Lane = "AGENT_LANE_VIOLATION" | "MLO_LANE_VIOLATION";
+/**
+ * Severity of a lane finding. DEFAULTS to `WARNING` platform-wide for the lane
+ * checker (draft posture — surface for human review, do not block) until Kelly
+ * approves arming. `REVIEW_FLAG` mirrors the M7 "warn line" tier; reserved for
+ * borderline rows we want surfaced even more softly. No lane row is `HARD_BLOCK`
+ * in this draft.
+ */
+type LaneSeverity = "HARD_BLOCK" | "WARNING" | "REVIEW_FLAG";
+interface LaneEntry {
+    /** Canonical lowercase identity of the row (the lane "token"). */
+    readonly token: string;
+    /** Which role is forbidden from this language. */
+    readonly lane: Lane;
+    readonly matchType: MatchType;
+    /** Explicit surface forms — phrase collocations that carry the wrong-lane
+     *  offer/solicitation framing (NOT bare topical nouns). */
+    readonly forms: readonly string[];
+    /** Default severity for this row (draft: WARNING). The scanner lets a caller
+     *  override the floor; the SoT keeps the conservative draft default here. */
+    readonly severity: LaneSeverity;
+    /** Same excusal model as M7 — negation / compound / disclaimer-banner. */
+    readonly allowedContexts: readonly AllowedContext[];
+    /** Plain-language description of WHY this is cross-lane + the false-positive
+     *  edge cases it deliberately does NOT catch. Surfaced verbatim in the README
+     *  so Kelly can approve line by line. */
+    readonly rationale: string;
+    /** Compliant in-lane substitution suggested in the finding message. */
+    readonly suggest?: string;
+}
+/**
+ * The role-aware lane vocabulary. Every row is a wrong-lane OFFER / SOLICITATION
+ * / ADVICE collocation — never a bare topical noun — so ordinary market context
+ * passes. Draft: all rows are WARNING.
+ */
+declare const LANE_REGISTRY: readonly LaneEntry[];
+/** Frozen membership set of lane-row token identities (runtime guard). */
+declare const LANE_TOKEN_SET: ReadonlySet<string>;
+/** All lane rows that forbid the given lane (i.e. that a given role must avoid). */
+declare function listLaneEntries(lane?: Lane): readonly LaneEntry[];
+
+/**
+ * `scanLaneViolations(text, role)` — the role-aware cross-lane checker (DRAFT).
+ *
+ * Runs the LANE_REGISTRY over the SAME shared match engine
+ * (`src/match-engine.ts`) as the M7 `checkCompliance`, then keeps only the rows
+ * that are out-of-lane for the caller's `role`:
+ *   - role "AGENT" → return AGENT_LANE_VIOLATION rows (MLO-only language).
+ *   - role "MLO"   → return MLO_LANE_VIOLATION rows (agent-only language).
+ *   - role "DUAL"  → see the documented DUAL decision below.
+ *
+ * DRAFT POSTURE. Severity defaults to the per-row `severity` (every row is
+ * WARNING in this draft). The scanner NEVER promotes a row to HARD_BLOCK on its
+ * own; a caller may pass `severityFloor` to RAISE the reported severity once
+ * Kelly approves arming, but the SoT default is warn-only. No existing M7 gate
+ * calls this function, so wiring it in is an explicit, opt-in step.
+ *
+ * Returns `{ token, message, severity }` per the dispatch contract, plus the
+ * match offset / matchedText / lane / suggest for actionable consumers.
+ *
+ * Pure function over text; no I/O, no throw on bad input.
+ */
+
+/** The professional on whose behalf the copy is sent. */
+type Role = "AGENT" | "MLO" | "DUAL";
+interface ScanLaneOptions {
+    /** Char ranges the caller marked as an educational/referral disclaimer block.
+     *  A lane match inside one of these is allowed IFF its row declares a
+     *  `disclaimer-banner` context (all rows do). Fail-safe-strict otherwise. */
+    readonly disclaimerRanges?: ReadonlyArray<readonly [number, number]>;
+    /** Raise the reported severity to at least this floor (e.g. pass "HARD_BLOCK"
+     *  ONLY after Kelly approves arming). Default: undefined → each row reports its
+     *  own draft `severity` (WARNING). The floor can only RAISE, never lower. */
+    readonly severityFloor?: LaneSeverity;
+}
+interface LaneViolation {
+    readonly token: string;
+    readonly lane: Lane;
+    /** Effective severity after applying `severityFloor` (draft default: WARNING). */
+    readonly severity: LaneSeverity;
+    /** Char offset of the match in the ORIGINAL input text. */
+    readonly index: number;
+    readonly matchedText: string;
+    readonly suggest?: string;
+    /** Actionable, parameterized message (mirrors the M7 Violation message form). */
+    readonly message: string;
+}
+/**
+ * Scan `text` for cross-lane language the sender's `role` may not use.
+ * Empty/non-string input returns `[]` (no throw). DUAL returns `[]` (see
+ * {@link lanesForRole}).
+ */
+declare function scanLaneViolations(text: string, role: Role, opts?: ScanLaneOptions): readonly LaneViolation[];
+/**
+ * True iff `text` contains at least one lane violation for `role`. Convenience
+ * mirror of `hasHardBlock`. Draft posture: this reports the PRESENCE of a
+ * (warn-level) lane issue — it does NOT block by itself; the consumer decides.
+ */
+declare function hasLaneViolation(text: string, role: Role, opts?: ScanLaneOptions): boolean;
+
+export { type AllowedContext, CLAUSE_BREAKERS, COMPLIANCE_REGISTRY, COMPLIANCE_TOKEN_SET, type CheckOptions, type ComplianceCategory, type ComplianceEntry, DEFAULT_LIST_NEGATION_PROXIMITY, DEFAULT_NEGATION_PROXIMITY, LANE_REGISTRY, LANE_TOKEN_SET, LIST_COORDINATORS, type Lane, type LaneEntry, type LaneSeverity, type LaneViolation, type MatchType, NEGATION_CUES, type Role, type ScanLaneOptions, type Violation, checkCompliance, hasHardBlock, hasLaneViolation, listComplianceEntries, listLaneEntries, scanLaneViolations };
