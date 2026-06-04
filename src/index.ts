@@ -33,3 +33,23 @@ export {
   type CheckOptions,
   type Violation,
 } from "./check.js";
+
+// ── Role-aware lane checker (DRAFT — warn-only, off by default) ───────────────
+// Flags cross-lane language (an agent speaking as an MLO, or vice versa) in
+// nurture copy. Defaults to WARNING; no M7 gate calls it until Kelly approves.
+export {
+  LANE_REGISTRY,
+  LANE_TOKEN_SET,
+  listLaneEntries,
+  type Lane,
+  type LaneSeverity,
+  type LaneEntry,
+} from "./lanes/index.js";
+
+export {
+  scanLaneViolations,
+  hasLaneViolation,
+  type Role,
+  type ScanLaneOptions,
+  type LaneViolation,
+} from "./lanes/scan.js";
