@@ -53,3 +53,19 @@ export {
   type ScanLaneOptions,
   type LaneViolation,
 } from "./lanes/scan.js";
+
+// ── Reg-Z + UDAAP rate-claim checker (DRAFT — warn-only, off by default) ──────
+// Numeric/comparison-aware scanner that the phrase matcher cannot express:
+// flags a stated mortgage-rate FIGURE without a nearby APR (Reg Z §1026.24) and
+// an unsubstantiated rate self-comparison ("below market", "lowest rate", "40
+// bps below") (CFPB UDAAP). Defaults to WARNING; no gate calls it until Kelly
+// approves arming. Mirrors Milo's detectsRateFigure rate-vs-value distinction.
+export {
+  scanRateClaims,
+  hasRateClaimViolation,
+  RATE_CLAIM_CONFIG,
+  type RateClaimToken,
+  type RateClaimSeverity,
+  type RateClaimOptions,
+  type RateClaimViolation,
+} from "./rate-claims/scan.js";

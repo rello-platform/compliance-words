@@ -20,11 +20,16 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const test = join(root, "python", "test_lane_parity.py");
+const tests = [
+  join(root, "python", "test_lane_parity.py"),
+  join(root, "python", "test_rate_claims_parity.py"),
+];
 
-if (!existsSync(test)) {
-  console.error(`[parity] python/test_lane_parity.py not found at ${test}`);
-  process.exit(1);
+for (const test of tests) {
+  if (!existsSync(test)) {
+    console.error(`[parity] ${test} not found`);
+    process.exit(1);
+  }
 }
 
 function findPython() {
@@ -45,9 +50,12 @@ if (!py) {
   process.exit(0);
 }
 
-const res = spawnSync(py, [test], { cwd: root, stdio: "inherit" });
-if (res.error) {
-  console.error("[parity] failed to launch Python:", res.error.message);
-  process.exit(1);
+for (const test of tests) {
+  const res = spawnSync(py, [test], { cwd: root, stdio: "inherit" });
+  if (res.error) {
+    console.error("[parity] failed to launch Python:", res.error.message);
+    process.exit(1);
+  }
+  if ((res.status ?? 1) !== 0) process.exit(res.status ?? 1);
 }
-process.exit(res.status ?? 1);
+process.exit(0);
