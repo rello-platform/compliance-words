@@ -95,6 +95,20 @@ const keyset = {
     },
   },
   laneEntries,
+  // Reg-Z + UDAAP rate-claim checker (DRAFT, warn-only). These two rules are
+  // numeric/comparison-aware (a % rate figure; an "N bps below" comparison) and
+  // CANNOT ride the word-sequence phrase matcher (it can't span a number), so
+  // they are NOT laneEntries. The Python port (python/rate_claims.py) mirrors
+  // the TS scanner's regexes verbatim; this config block is emitted for the
+  // freshness diff + DRAFT-posture assertion (status/armed/defaultSeverity).
+  rateClaimConfig: {
+    status: "DRAFT",
+    defaultSeverity: "WARNING",
+    armed: false,
+    tokens: ["regz_rate_figure_no_apr", "udaap_rate_comparison"],
+    note:
+      "regz_rate_figure_no_apr: a % that reads as a mortgage/interest RATE (rate cue near it) with NO 'APR' token nearby flags; a home-VALUE % (value cue, no rate cue) and an APR-disclosed rate are allowed — mirrors Milo composition-prompt-eval detectsRateFigure. udaap_rate_comparison: an unsubstantiated rate SELF-comparison ('below market', 'lower than other lenders', 'lowest/best rate', 'beat any rate', 'N bps below') flags; factual data-sourced market/value stats are allowed.",
+  },
 };
 
 const outPath = join(root, "dist", "compliance-words-keyset.json");

@@ -327,4 +327,117 @@ declare function scanLaneViolations(text: string, role: Role, opts?: ScanLaneOpt
  */
 declare function hasLaneViolation(text: string, role: Role, opts?: ScanLaneOptions): boolean;
 
-export { type AllowedContext, CLAUSE_BREAKERS, COMPLIANCE_REGISTRY, COMPLIANCE_TOKEN_SET, type CheckOptions, type ComplianceCategory, type ComplianceEntry, DEFAULT_LIST_NEGATION_PROXIMITY, DEFAULT_NEGATION_PROXIMITY, LANE_REGISTRY, LANE_TOKEN_SET, LIST_COORDINATORS, type Lane, type LaneEntry, type LaneSeverity, type LaneViolation, type MatchType, NEGATION_CUES, type Role, type ScanLaneOptions, type Violation, checkCompliance, hasHardBlock, hasLaneViolation, listComplianceEntries, listLaneEntries, scanLaneViolations };
+/**
+ * `scanRateClaims(text)` — numeric/comparison-aware Reg-Z + UDAAP rate-claim
+ * checker (DRAFT — warn-only, off by default).
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * STATUS: DRAFT for Kelly's review. Both rules default to WARNING severity (NOT
+ * HARD_BLOCK) and `RATE_CLAIM_CONFIG.armed` is `false`. No M7 / lane / Milo gate
+ * promotes these to a blocking severity until Kelly approves arming. The scanner
+ * never raises severity on its own; a caller may pass `severityFloor` to RAISE
+ * the reported severity ONLY after Kelly approves arming.
+ * ───────────────────────────────────────────────────────────────────────────
+ *
+ * WHY A SEPARATE SCANNER (not LANE_REGISTRY rows). The two rules below are
+ * NUMERIC- and COMPARISON-aware: a stated mortgage-rate FIGURE ("5.5%", "the
+ * 30-year fixed is sitting around 5.5%") and a basis-point comparison ("40 bps
+ * below market"). The shared phrase matcher in `../match-engine.ts` matches an
+ * ORDERED WORD SEQUENCE separated only by non-word chars — it CANNOT span a
+ * number, because digits are word chars (this exact limitation is documented on
+ * the `apr trigger term` LANE_REGISTRY row, which says a consumer "MUST pair this
+ * with its own Reg-Z numeric scan"). This module IS that numeric scan. It reuses
+ * the same `maskHtml` offset-preserving primitive as the shared engine and the
+ * same `{ token, message, severity }` finding shape as `scanLaneViolations`, so a
+ * consumer wires it identically. The Python port (`python/rate_claims.py`) mirrors
+ * the same algorithm; `python/rate_claims_parity_corpus.json` re-asserts parity.
+ *
+ * SCOPE — what each rule catches, verbatim for Kelly's line-by-line review.
+ *
+ * ── REG-Z rule (`regz_rate_figure_no_apr`) ──────────────────────────────────
+ * Reg Z / TILA (12 CFR §1026.24) — a stated consumer-credit RATE figure is a
+ * "trigger term" that pulls in mandatory APR disclosure. The rule flags a
+ * percentage that reads as an interest / mortgage RATE when no "APR" token sits
+ * nearby. It mirrors Milo's eval helper `detectsRateFigure` byte-for-byte: a
+ * percentage flags ONLY in a rate context (a rate cue near the %), and is
+ * EXCLUDED when it reads as a home-VALUE / price / appreciation figure (a value
+ * cue near the % AND no rate cue). The APR-present escape (an "APR" / "A.P.R."
+ * token within proximity of the % → not flagged) is the additive Reg-Z piece on
+ * top of `detectsRateFigure`: a properly-disclosed "6.1% APR" is compliant.
+ *
+ *   FLAGS:   "the 30-year fixed is sitting around 5.5% right now"
+ *            "I'm offering 6.1% on a 30-year fixed"
+ *            "a rate of 6.125%"
+ *            "rates near 6%"
+ *            a bare "6.125%" with no value context (conservative — a stray rate
+ *            number must still trip the ban)
+ *   ALLOWS:  "6.1% APR on a 30-year fixed" (APR disclosed)
+ *            "prices are up 5% from last year" (home-value figure)
+ *            "home values rose roughly 5% year over year"
+ *            "rates have eased lately" (DIRECTIONAL — no figure)
+ *
+ * ── UDAAP rule (`udaap_rate_comparison`) ────────────────────────────────────
+ * CFPB UDAAP — an unsubstantiated rate self-comparison ("below market", "lower
+ * than other lenders", "beat any rate", "lowest rate") is a deceptive/unfair
+ * claim. The rule flags rate-COMPARISON collocations only; a factual market or
+ * home-value stat sourced from data is fine.
+ *
+ *   FLAGS:   "running below the broader market average"
+ *            "below market", "below the market average"
+ *            "lower than other lenders", "better than the banks"
+ *            "40 bps below", "40 basis points below"
+ *            "beat any rate", "we'll beat any rate", "lowest rate", "best rate"
+ *            "unbeatable rate", "rates nobody can match"
+ *   ALLOWS:  "home values are up 5% from last year" (market/value stat)
+ *            "the median sale price in your zip is $X" (data stat)
+ *            "rates have eased lately" (directional, no comparison)
+ *
+ * Pure function over text; no I/O, no throw on bad input.
+ */
+/** Severity of a rate-claim finding. Mirrors the lane checker's three tiers. */
+type RateClaimSeverity = "HARD_BLOCK" | "WARNING" | "REVIEW_FLAG";
+/** Which rule produced the finding. */
+type RateClaimToken = "regz_rate_figure_no_apr" | "udaap_rate_comparison";
+interface RateClaimOptions {
+    /** Raise the reported severity to at least this floor (pass "HARD_BLOCK" ONLY
+     *  after Kelly approves arming). Default: each rule reports its own draft
+     *  WARNING. The floor can only RAISE, never lower. */
+    readonly severityFloor?: RateClaimSeverity;
+    /** Char ranges the caller marked as an illustrative/disclaimer block. A match
+     *  inside one of these is allowed (fail-safe-strict: an unmarked block still
+     *  flags). Mirrors the lane checker's `disclaimerRanges`. */
+    readonly disclaimerRanges?: ReadonlyArray<readonly [number, number]>;
+}
+interface RateClaimViolation {
+    readonly token: RateClaimToken;
+    /** Effective severity after applying `severityFloor` (draft default: WARNING). */
+    readonly severity: RateClaimSeverity;
+    /** Char offset of the match in the ORIGINAL input text. */
+    readonly index: number;
+    readonly matchedText: string;
+    /** Compliant in-lane substitution suggested in the finding message. */
+    readonly suggest: string;
+    /** Actionable, parameterized message (mirrors the lane Violation message form). */
+    readonly message: string;
+}
+/** DRAFT posture metadata — surfaced so a consumer can assert "not armed". */
+declare const RATE_CLAIM_CONFIG: {
+    readonly status: "DRAFT";
+    readonly defaultSeverity: RateClaimSeverity;
+    readonly armed: false;
+    readonly tokens: readonly ["regz_rate_figure_no_apr", "udaap_rate_comparison"];
+};
+/**
+ * Scan `text` for Reg-Z rate-figure and UDAAP rate-comparison violations.
+ * Empty/non-string input returns `[]` (no throw). Matches inside a caller-marked
+ * `disclaimerRanges` block are excused (fail-safe-strict otherwise).
+ */
+declare function scanRateClaims(text: string, opts?: RateClaimOptions): readonly RateClaimViolation[];
+/**
+ * True iff `text` contains at least one Reg-Z / UDAAP rate-claim violation.
+ * Draft posture: reports PRESENCE of a (warn-level) issue — does NOT block by
+ * itself; the consumer decides.
+ */
+declare function hasRateClaimViolation(text: string, opts?: RateClaimOptions): boolean;
+
+export { type AllowedContext, CLAUSE_BREAKERS, COMPLIANCE_REGISTRY, COMPLIANCE_TOKEN_SET, type CheckOptions, type ComplianceCategory, type ComplianceEntry, DEFAULT_LIST_NEGATION_PROXIMITY, DEFAULT_NEGATION_PROXIMITY, LANE_REGISTRY, LANE_TOKEN_SET, LIST_COORDINATORS, type Lane, type LaneEntry, type LaneSeverity, type LaneViolation, type MatchType, NEGATION_CUES, RATE_CLAIM_CONFIG, type RateClaimOptions, type RateClaimSeverity, type RateClaimToken, type RateClaimViolation, type Role, type ScanLaneOptions, type Violation, checkCompliance, hasHardBlock, hasLaneViolation, hasRateClaimViolation, listComplianceEntries, listLaneEntries, scanLaneViolations, scanRateClaims };

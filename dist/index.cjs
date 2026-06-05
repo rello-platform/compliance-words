@@ -29,12 +29,15 @@ __export(index_exports, {
   LANE_TOKEN_SET: () => LANE_TOKEN_SET,
   LIST_COORDINATORS: () => LIST_COORDINATORS,
   NEGATION_CUES: () => NEGATION_CUES,
+  RATE_CLAIM_CONFIG: () => RATE_CLAIM_CONFIG,
   checkCompliance: () => checkCompliance,
   hasHardBlock: () => hasHardBlock,
   hasLaneViolation: () => hasLaneViolation,
+  hasRateClaimViolation: () => hasRateClaimViolation,
   listComplianceEntries: () => listComplianceEntries,
   listLaneEntries: () => listLaneEntries,
-  scanLaneViolations: () => scanLaneViolations
+  scanLaneViolations: () => scanLaneViolations,
+  scanRateClaims: () => scanRateClaims
 });
 module.exports = __toCommonJS(index_exports);
 
@@ -1056,6 +1059,127 @@ function scanLaneViolations(text, role, opts = {}) {
 function hasLaneViolation(text, role, opts = {}) {
   return scanLaneViolations(text, role, opts).length > 0;
 }
+
+// src/rate-claims/scan.ts
+var RATE_CLAIM_CONFIG = {
+  status: "DRAFT",
+  defaultSeverity: "WARNING",
+  armed: false,
+  tokens: ["regz_rate_figure_no_apr", "udaap_rate_comparison"]
+};
+var DEFAULT_SEVERITY = "WARNING";
+var SEVERITY_RANK2 = {
+  REVIEW_FLAG: 0,
+  WARNING: 1,
+  HARD_BLOCK: 2
+};
+function applyFloor2(rowSeverity, floor) {
+  if (!floor) return rowSeverity;
+  return SEVERITY_RANK2[floor] > SEVERITY_RANK2[rowSeverity] ? floor : rowSeverity;
+}
+function withinAnyRange2(offset, ranges) {
+  if (!ranges) return false;
+  return ranges.some(([start, end]) => offset >= start && offset < end);
+}
+var PERCENT_TOKEN = /\b\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent\b)/gi;
+var WINDOW = 40;
+var RATE_CUES = /\brate\b|\brates\b|\bmortgage\b|\bapr\b|\bloan\b|\b30[\s-]?(?:year|yr)\b|\b15[\s-]?(?:year|yr)\b|thirty[\s-]?year|fifteen[\s-]?year|\bfixed\b|\barm\b|\bapy\b|\binterest\b|\bpoints?\b|\bbps\b|basis points?|offering|offered|locked? in|lock(?:ed)? at/i;
+var VALUE_CUES = /\bup\b|from last year|year[\s-]?over[\s-]?year|\byoy\b|\bprices?\b|home values?|\bvalues?\b|\bworth\b|appreciat|\bgained\b|\bgaining\b|\brose\b|\brisen\b|\brising\b|climbed|\bequity\b|\bappreciation\b/i;
+var APR_PRESENT = /\bapr\b|\ba\.p\.r\.|\bannual percentage rate\b/i;
+function scanRegZ(text, masked) {
+  const lower = masked.toLowerCase();
+  const out = [];
+  PERCENT_TOKEN.lastIndex = 0;
+  let m;
+  while ((m = PERCENT_TOKEN.exec(lower)) !== null) {
+    const idx = m.index;
+    if (PERCENT_TOKEN.lastIndex === idx) PERCENT_TOKEN.lastIndex++;
+    const start = Math.max(0, idx - WINDOW);
+    const end = Math.min(lower.length, idx + m[0].length + WINDOW);
+    const ctx = lower.slice(start, end);
+    const hasRateCue = RATE_CUES.test(ctx);
+    const hasValueCue = VALUE_CUES.test(ctx);
+    if (hasValueCue && !hasRateCue) continue;
+    if (APR_PRESENT.test(ctx)) continue;
+    out.push({ index: idx, matchedText: text.slice(idx, idx + m[0].length) });
+  }
+  return out;
+}
+var UDAAP_PATTERNS = [
+  // "below market" family (the live-violation pattern: "running below the
+  // broader market average"). Optional "the"/"broader"/"national"/"going".
+  {
+    re: /\bbelow\s+(?:the\s+)?(?:broader\s+|national\s+|going\s+)?market(?:\s+(?:average|rate))?\b/i,
+    label: "below-market rate comparison"
+  },
+  { re: /\bbelow\s+(?:the\s+)?national\s+average\b/i, label: "below-national-average rate comparison" },
+  { re: /\bbelow\s+average\s+(?:rate|rates|on\s+(?:your|the)\s+(?:rate|loan|mortgage))?\b/i, label: "below-average rate comparison" },
+  // "lower / better than other lenders/banks/competition"
+  { re: /\b(?:lower|better)\s+than\s+(?:the\s+|other\s+|your\s+(?:current\s+)?)?(?:lenders?|banks?|competition|competitors?|rate)\b/i, label: "lower-than-competitors rate comparison" },
+  // "beat any/your rate", "beat the bank", "we'll beat", "nobody can beat", "can't be beat"
+  { re: /\bbeat\s+(?:any|your|the|their|our\s+competitors?'?)\s+(?:rate|rates|price|bank|lender|offer)\b/i, label: "beat-any-rate claim" },
+  { re: /\b(?:we'?ll|we\s+will|i'?ll|i\s+will)\s+beat\b/i, label: "we'll-beat claim" },
+  { re: /\b(?:nobody|no\s+one)\s+can\s+beat\b/i, label: "nobody-can-beat claim" },
+  { re: /\bcan'?t\s+be\s+beat(?:en)?\b/i, label: "can't-be-beat claim" },
+  { re: /\bunbeatable\s+rates?\b/i, label: "unbeatable-rate claim" },
+  // "lowest / best / most competitive rate"
+  { re: /\b(?:the\s+)?lowest\s+rates?\b/i, label: "lowest-rate superlative claim" },
+  { re: /\b(?:the\s+)?best\s+rates?\b/i, label: "best-rate superlative claim" },
+  { re: /\bmost\s+competitive\s+rates?\b/i, label: "most-competitive-rate claim" },
+  { re: /\brates?\s+(?:that\s+)?(?:nobody|no\s+one)\s+can\s+match\b/i, label: "no-one-can-match-rate claim" },
+  // Basis-point / point comparison (the one numeric UDAAP form).
+  { re: /\b\d+(?:\.\d+)?\s*(?:bps|basis\s+points?|points?)\s+(?:below|under|lower\s+than|cheaper\s+than)\b/i, label: "basis-points-below rate comparison" }
+];
+function scanUdaap(text, masked) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const { re } of UDAAP_PATTERNS) {
+    const r = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
+    r.lastIndex = 0;
+    let m;
+    while ((m = r.exec(masked)) !== null) {
+      if (r.lastIndex === m.index) r.lastIndex++;
+      if (seen.has(m.index)) continue;
+      seen.add(m.index);
+      out.push({ index: m.index, matchedText: text.slice(m.index, m.index + m[0].length) });
+    }
+  }
+  return out;
+}
+var REGZ_SUGGEST = "omit the rate figure (or pair it with APR) and use directional language ('rates have eased') \u2014 rate quotes come from the loan officer";
+var UDAAP_SUGGEST = "remove the rate self-comparison; cite only factual, data-sourced market/value stats";
+function buildMessage3(token, matchedText, index, severity, suggest) {
+  const label = token === "regz_rate_figure_no_apr" ? "a stated mortgage-rate figure without a nearby APR (Reg Z / TILA \xA71026.24)" : "an unsubstantiated rate self-comparison (CFPB UDAAP)";
+  return `\u26A0 ${severity} [rate-claim]: "${matchedText}" is ${label} ("${token}") at offset ${index} \u2192 ${suggest}`;
+}
+function scanRateClaims(text, opts = {}) {
+  if (typeof text !== "string" || text.length === 0) return [];
+  const masked = maskHtml(text);
+  const violations = [];
+  const push = (token, index, matchedText, suggest) => {
+    if (withinAnyRange2(index, opts.disclaimerRanges)) return;
+    const severity = applyFloor2(DEFAULT_SEVERITY, opts.severityFloor);
+    violations.push({
+      token,
+      severity,
+      index,
+      matchedText,
+      suggest,
+      message: buildMessage3(token, matchedText, index, severity, suggest)
+    });
+  };
+  for (const { index, matchedText } of scanRegZ(text, masked)) {
+    push("regz_rate_figure_no_apr", index, matchedText, REGZ_SUGGEST);
+  }
+  for (const { index, matchedText } of scanUdaap(text, masked)) {
+    push("udaap_rate_comparison", index, matchedText, UDAAP_SUGGEST);
+  }
+  violations.sort((a, b) => a.index - b.index || a.token.localeCompare(b.token));
+  return violations;
+}
+function hasRateClaimViolation(text, opts = {}) {
+  return scanRateClaims(text, opts).length > 0;
+}
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   CLAUSE_BREAKERS,
@@ -1067,11 +1191,14 @@ function hasLaneViolation(text, role, opts = {}) {
   LANE_TOKEN_SET,
   LIST_COORDINATORS,
   NEGATION_CUES,
+  RATE_CLAIM_CONFIG,
   checkCompliance,
   hasHardBlock,
   hasLaneViolation,
+  hasRateClaimViolation,
   listComplianceEntries,
   listLaneEntries,
-  scanLaneViolations
+  scanLaneViolations,
+  scanRateClaims
 });
 //# sourceMappingURL=index.cjs.map
