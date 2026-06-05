@@ -36,13 +36,27 @@
  * token within proximity of the % → not flagged) is the additive Reg-Z piece on
  * top of `detectsRateFigure`: a properly-disclosed "6.1% APR" is compliant.
  *
+ * LEAD-OWNED-RATE escape (Kelly ruling 2026-06-03). A factual statement about the
+ * LEAD'S OWN EXISTING rate ("your current rate is 2.88%", "you're sitting on a
+ * 2.94% rate", "your 6.5% rate alert") is NOT an advertised offer and does not
+ * pull in the §1026.24 trigger-term obligation — no credit is being offered. A %
+ * in a lead-OWNED-rate context (`OWN_RATE_CUES`) is allowed, mirroring the
+ * home-VALUE escape — UNLESS a PROSPECTIVE-OFFER cue (`OFFER_CUES`: "new rate",
+ * "could be/get", "you could", "refi", "lock you in", …) also sits near the %, in
+ * which case it is an advertised offer ("your new rate could be 5.5%") and STILL
+ * flags. ONLY a MARKET / advertised-OFFER rate without APR is the real violation.
+ *
  *   FLAGS:   "the 30-year fixed is sitting around 5.5% right now"
  *            "I'm offering 6.1% on a 30-year fixed"
  *            "a rate of 6.125%"
+ *            "rates are at 6.4%" / "30-yr is now 6%"
  *            "rates near 6%"
- *            a bare "6.125%" with no value context (conservative — a stray rate
- *            number must still trip the ban)
+ *            "your new rate could be 5.5%" (PROSPECTIVE offer, not existing rate)
+ *            a bare "6.125%" with no value/own-rate context (conservative — a
+ *            stray rate number must still trip the ban)
  *   ALLOWS:  "6.1% APR on a 30-year fixed" (APR disclosed)
+ *            "your current rate is 2.88%" (lead's OWN existing rate — Kelly)
+ *            "you're sitting on a 2.94% rate" / "your 6.5% rate alert"
  *            "prices are up 5% from last year" (home-value figure)
  *            "home values rose roughly 5% year over year"
  *            "rates have eased lately" (DIRECTIONAL — no figure)
@@ -155,6 +169,35 @@ const VALUE_CUES =
 // detectsRateFigure (which only decides rate-vs-value, not APR-presence).
 const APR_PRESENT = /\bapr\b|\ba\.p\.r\.|\bannual percentage rate\b/i;
 
+// ── LEAD-OWNED-RATE escape (Kelly ruling 2026-06-03) ─────────────────────────
+//
+// A factual statement about the LEAD'S OWN EXISTING rate ("your current rate is
+// 2.88%", "you're sitting on a 2.94% rate", "your 6.5% rate alert") is NOT an
+// advertised consumer-credit offer — it does not pull in the Reg-Z §1026.24
+// "trigger term" APR-disclosure obligation, because no credit is being offered.
+// It mirrors the home-VALUE escape (VALUE_CUES): a % in a lead-owned-rate context
+// is allowed UNLESS the surrounding text also frames a PROSPECTIVE OFFER (see
+// OFFER_CUES below) — in which case it is an advertised rate and STILL flags.
+//
+// OWN-RATE CUES — possessive / existing-rate framing near the %:
+//   your rate | your current rate | your existing rate | your locked(-in) rate |
+//   their (current|existing) rate | rate alert | you're/you are sitting on |
+//   your <N>% rate (possessive + figure + "rate") |
+//   the rate you have/had/locked/got/are | you've/you're (on|paying) the rate
+const OWN_RATE_CUES =
+  /\byour\s+(?:current\s+|existing\s+|locked(?:[\s-]?in)?\s+)?rate\b|\btheir\s+(?:current\s+|existing\s+)?rate\b|\brate\s+alert\b|\byou(?:'re|\s+are)\s+sitting\s+on\b|\byour\s+\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent)\s+rate\b|\bthe\s+rate\s+you(?:'?ve|'?re|\s+(?:have|had|locked|got|are))\b/i;
+
+// OFFER GUARD — a PROSPECTIVE / advertised-offer framing. Even when a possessive
+// "your … rate" cue is present, these turn the figure back into an advertised
+// offer (NOT the lead's existing rate) so it STILL flags:
+//   (your|a) new rate | rate could be | could be/get/drop/go/lock/save/qualify |
+//   you could … | we could … | refi(nance) | get you (down) to | qualify for |
+//   down to <rate> | as low as | lock you in | we can get/offer/lock
+// Boundary: "your current rate is 2.88%" → existing fact, ALLOWED.
+//           "your new rate could be 5.5%" → prospective offer, FLAGGED.
+const OFFER_CUES =
+  /\bnew\s+rate\b|\bcould\s+(?:be|get|drop|go|lock|save|qualify)\b|\byou\s+could\b|\bwe\s+could\b|\brefi(?:nance)?\b|\bget\s+you\b|\bqualify\s+for\b|\bdown\s+to\b|\bas\s+low\s+as\b|\block\s+you\s+in\b|\bwe\s+can\s+(?:get|offer|lock)\b/i;
+
 function scanRegZ(text: string, masked: string): Array<{ index: number; matchedText: string }> {
   const lower = masked.toLowerCase();
   const out: Array<{ index: number; matchedText: string }> = [];
@@ -177,6 +220,12 @@ function scanRegZ(text: string, masked: string): Array<{ index: number; matchedT
 
     // Allow a properly Reg-Z-disclosed rate: an APR token sits near the %.
     if (APR_PRESENT.test(ctx)) continue;
+
+    // Allow the LEAD'S OWN EXISTING rate (Kelly ruling): an own-rate cue near the
+    // % AND no prospective-OFFER framing → a factual statement about the
+    // customer's existing rate, outside Reg-Z trigger-term scope. The OFFER guard
+    // keeps "your new rate could be 5.5%" flagged (advertised offer, not a fact).
+    if (OWN_RATE_CUES.test(ctx) && !OFFER_CUES.test(ctx)) continue;
 
     // Everything else flags: explicit rate context with no APR, OR an ambiguous
     // % with neither cue (conservative — a stray rate number must still trip).

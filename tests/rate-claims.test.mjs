@@ -93,6 +93,61 @@ describe("rate-claims — REG-Z (rate figure without APR)", () => {
   });
 });
 
+// ── REG-Z lead-owned-rate escape (Kelly ruling 2026-06-03) ──────────────────
+describe("rate-claims — REG-Z lead-owned-rate escape", () => {
+  it("ALLOWS a factual statement about the LEAD'S OWN existing rate", () => {
+    for (const t of [
+      "Your current rate is 2.88%, which is great.",
+      "You're sitting on a 2.94% rate — hold onto it.",
+      "Saw your 6.5% rate alert come through.",
+      "Your 2.67% rate is well below today's market.",
+      "Their current rate is 3.1% on the existing loan.",
+      "The rate you locked at 3.25% is fantastic.",
+      "Your existing rate of 3.0% is hard to beat.",
+    ]) {
+      assert.equal(
+        tokensOf(t).filter((x) => x === "regz_rate_figure_no_apr").length,
+        0,
+        `expected no Reg-Z flag (lead's own rate): ${t}`,
+      );
+    }
+  });
+
+  it("STILL flags a MARKET / advertised-OFFER rate without APR", () => {
+    for (const t of [
+      "Rates are at 6.4% right now.",
+      "30-yr is now 6.4%.",
+      "I'm offering 5.5%.",
+      "a rate of 6.1%",
+    ]) {
+      assert.ok(
+        tokensOf(t).includes("regz_rate_figure_no_apr"),
+        `expected Reg-Z flag (market/offer rate): ${t}`,
+      );
+    }
+  });
+
+  it("STILL flags a PROSPECTIVE offer even with a possessive 'your'", () => {
+    for (const t of [
+      "Your new rate could be 5.5%.",
+      "We could get your rate down to 5.5%.",
+      "You could get a 5.5% rate if you refi.",
+    ]) {
+      assert.ok(
+        tokensOf(t).includes("regz_rate_figure_no_apr"),
+        `expected Reg-Z flag (prospective offer, not existing rate): ${t}`,
+      );
+    }
+  });
+
+  it("ALLOWS the lead's own rate paired with APR too (still no flag)", () => {
+    assert.equal(
+      tokensOf("Your current rate is 2.88% APR.").filter((x) => x === "regz_rate_figure_no_apr").length,
+      0,
+    );
+  });
+});
+
 // ── UDAAP rule ────────────────────────────────────────────────────────────
 describe("rate-claims — UDAAP (rate self-comparison)", () => {
   it("flags below-market / comparison / superlative claims", () => {

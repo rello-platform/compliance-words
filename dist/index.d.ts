@@ -365,13 +365,27 @@ declare function hasLaneViolation(text: string, role: Role, opts?: ScanLaneOptio
  * token within proximity of the % → not flagged) is the additive Reg-Z piece on
  * top of `detectsRateFigure`: a properly-disclosed "6.1% APR" is compliant.
  *
+ * LEAD-OWNED-RATE escape (Kelly ruling 2026-06-03). A factual statement about the
+ * LEAD'S OWN EXISTING rate ("your current rate is 2.88%", "you're sitting on a
+ * 2.94% rate", "your 6.5% rate alert") is NOT an advertised offer and does not
+ * pull in the §1026.24 trigger-term obligation — no credit is being offered. A %
+ * in a lead-OWNED-rate context (`OWN_RATE_CUES`) is allowed, mirroring the
+ * home-VALUE escape — UNLESS a PROSPECTIVE-OFFER cue (`OFFER_CUES`: "new rate",
+ * "could be/get", "you could", "refi", "lock you in", …) also sits near the %, in
+ * which case it is an advertised offer ("your new rate could be 5.5%") and STILL
+ * flags. ONLY a MARKET / advertised-OFFER rate without APR is the real violation.
+ *
  *   FLAGS:   "the 30-year fixed is sitting around 5.5% right now"
  *            "I'm offering 6.1% on a 30-year fixed"
  *            "a rate of 6.125%"
+ *            "rates are at 6.4%" / "30-yr is now 6%"
  *            "rates near 6%"
- *            a bare "6.125%" with no value context (conservative — a stray rate
- *            number must still trip the ban)
+ *            "your new rate could be 5.5%" (PROSPECTIVE offer, not existing rate)
+ *            a bare "6.125%" with no value/own-rate context (conservative — a
+ *            stray rate number must still trip the ban)
  *   ALLOWS:  "6.1% APR on a 30-year fixed" (APR disclosed)
+ *            "your current rate is 2.88%" (lead's OWN existing rate — Kelly)
+ *            "you're sitting on a 2.94% rate" / "your 6.5% rate alert"
  *            "prices are up 5% from last year" (home-value figure)
  *            "home values rose roughly 5% year over year"
  *            "rates have eased lately" (DIRECTIONAL — no figure)

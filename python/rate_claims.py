@@ -8,8 +8,10 @@ Faithful port of the TypeScript `scanRateClaims`
 (@rello-platform/compliance-words `src/rate-claims/scan.ts`). These two rules are
 numeric/comparison-aware (a % rate figure; an "N bps below" comparison) and
 CANNOT ride the shared phrase matcher (it can't span a number), so they are a
-standalone scanner — NOT lane rows. The Reg-Z rate-vs-value distinction is
-mirrored verbatim from Milo's `detectsRateFigure`
+standalone scanner — NOT lane rows. v0.4.0 adds a LEAD-OWNED-RATE escape (Kelly
+ruling 2026-06-03): a % about the lead's OWN existing rate is allowed; a
+prospective OFFER ("your new rate could be 5.5%") still flags. The Reg-Z
+rate-vs-value distinction is mirrored verbatim from Milo's `detectsRateFigure`
 (composition-prompt-eval.test.ts) so the platform has ONE distinction.
 
 DRAFT posture: every finding is WARNING; this scanner never blocks on its own.
@@ -65,6 +67,28 @@ _VALUE_CUES = re.compile(
 )
 _APR_PRESENT = re.compile(r"\bapr\b|\ba\.p\.r\.|\bannual percentage rate\b", re.IGNORECASE)
 
+# LEAD-OWNED-RATE escape (Kelly ruling 2026-06-03). A factual statement about the
+# lead's OWN existing rate ("your current rate is 2.88%", "you're sitting on a
+# 2.94% rate", "your 6.5% rate alert") is NOT an advertised offer → outside the
+# Reg-Z trigger-term scope. Mirrors VALUE_CUES; an OFFER cue near the % overrides
+# it (a prospective "your new rate could be 5.5%" STILL flags). Mirror of
+# scan.ts OWN_RATE_CUES / OFFER_CUES verbatim.
+_OWN_RATE_CUES = re.compile(
+    r"\byour\s+(?:current\s+|existing\s+|locked(?:[\s-]?in)?\s+)?rate\b|"
+    r"\btheir\s+(?:current\s+|existing\s+)?rate\b|\brate\s+alert\b|"
+    r"\byou(?:'re|\s+are)\s+sitting\s+on\b|"
+    r"\byour\s+\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent)\s+rate\b|"
+    r"\bthe\s+rate\s+you(?:'?ve|'?re|\s+(?:have|had|locked|got|are))\b",
+    re.IGNORECASE,
+)
+_OFFER_CUES = re.compile(
+    r"\bnew\s+rate\b|\bcould\s+(?:be|get|drop|go|lock|save|qualify)\b|"
+    r"\byou\s+could\b|\bwe\s+could\b|\brefi(?:nance)?\b|\bget\s+you\b|"
+    r"\bqualify\s+for\b|\bdown\s+to\b|\bas\s+low\s+as\b|\block\s+you\s+in\b|"
+    r"\bwe\s+can\s+(?:get|offer|lock)\b",
+    re.IGNORECASE,
+)
+
 
 def _scan_regz(text, masked):
     lower = masked.lower()
@@ -83,6 +107,10 @@ def _scan_regz(text, masked):
             continue
         # Allow a properly Reg-Z-disclosed rate: an APR token near the %.
         if _APR_PRESENT.search(ctx):
+            continue
+        # Allow the LEAD'S OWN existing rate (Kelly ruling): own-rate cue near the
+        # % AND no prospective-OFFER framing → outside Reg-Z trigger-term scope.
+        if _OWN_RATE_CUES.search(ctx) and not _OFFER_CUES.search(ctx):
             continue
         out.append((idx, text[idx:idx + len(m.group(0))]))
     return out

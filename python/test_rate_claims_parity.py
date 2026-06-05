@@ -113,6 +113,29 @@ class RateClaimBehavior(unittest.TestCase):
         ]:
             self.assertEqual(scan_rate_claims(t), [], t)
 
+    def test_regz_lead_owned_rate_allows(self):
+        # Kelly ruling 2026-06-03: the lead's OWN existing rate is not an offer.
+        for t in [
+            "Your current rate is 2.88%, which is great.",
+            "You're sitting on a 2.94% rate — hold onto it.",
+            "Saw your 6.5% rate alert come through.",
+            "Your 2.67% rate is well below today's market.",
+            "Their current rate is 3.1% on the existing loan.",
+            "The rate you locked at 3.25% is fantastic.",
+        ]:
+            self.assertNotIn("regz_rate_figure_no_apr", self._tokens(t), t)
+
+    def test_regz_market_and_prospective_offer_still_flag(self):
+        for t in [
+            "Rates are at 6.4% right now.",
+            "30-yr is now 6.4%.",
+            "I'm offering 5.5%.",
+            "a rate of 6.1%",
+            "Your new rate could be 5.5%.",
+            "We could get your rate down to 5.5%.",
+        ]:
+            self.assertIn("regz_rate_figure_no_apr", self._tokens(t), t)
+
     def test_udaap_positives(self):
         for t in [
             "running below the broader market average",
