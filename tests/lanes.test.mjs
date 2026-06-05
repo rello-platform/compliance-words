@@ -283,6 +283,6 @@ describe("dist/compliance-words-keyset.json — lane block", () => {
 
   it("does NOT disturb the M7 entries block (additive)", () => {
     assert.equal(keyset.entries.length, 11);
-    assert.equal(keyset.version, "0.3.0");
+    assert.equal(keyset.version, "0.4.0");
   });
 });

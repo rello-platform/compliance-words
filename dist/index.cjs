@@ -1086,6 +1086,8 @@ var WINDOW = 40;
 var RATE_CUES = /\brate\b|\brates\b|\bmortgage\b|\bapr\b|\bloan\b|\b30[\s-]?(?:year|yr)\b|\b15[\s-]?(?:year|yr)\b|thirty[\s-]?year|fifteen[\s-]?year|\bfixed\b|\barm\b|\bapy\b|\binterest\b|\bpoints?\b|\bbps\b|basis points?|offering|offered|locked? in|lock(?:ed)? at/i;
 var VALUE_CUES = /\bup\b|from last year|year[\s-]?over[\s-]?year|\byoy\b|\bprices?\b|home values?|\bvalues?\b|\bworth\b|appreciat|\bgained\b|\bgaining\b|\brose\b|\brisen\b|\brising\b|climbed|\bequity\b|\bappreciation\b/i;
 var APR_PRESENT = /\bapr\b|\ba\.p\.r\.|\bannual percentage rate\b/i;
+var OWN_RATE_CUES = /\byour\s+(?:current\s+|existing\s+|locked(?:[\s-]?in)?\s+)?rate\b|\btheir\s+(?:current\s+|existing\s+)?rate\b|\brate\s+alert\b|\byou(?:'re|\s+are)\s+sitting\s+on\b|\byour\s+\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent)\s+rate\b|\bthe\s+rate\s+you(?:'?ve|'?re|\s+(?:have|had|locked|got|are))\b/i;
+var OFFER_CUES = /\bnew\s+rate\b|\bcould\s+(?:be|get|drop|go|lock|save|qualify)\b|\byou\s+could\b|\bwe\s+could\b|\brefi(?:nance)?\b|\bget\s+you\b|\bqualify\s+for\b|\bdown\s+to\b|\bas\s+low\s+as\b|\block\s+you\s+in\b|\bwe\s+can\s+(?:get|offer|lock)\b/i;
 function scanRegZ(text, masked) {
   const lower = masked.toLowerCase();
   const out = [];
@@ -1101,6 +1103,7 @@ function scanRegZ(text, masked) {
     const hasValueCue = VALUE_CUES.test(ctx);
     if (hasValueCue && !hasRateCue) continue;
     if (APR_PRESENT.test(ctx)) continue;
+    if (OWN_RATE_CUES.test(ctx) && !OFFER_CUES.test(ctx)) continue;
     out.push({ index: idx, matchedText: text.slice(idx, idx + m[0].length) });
   }
   return out;

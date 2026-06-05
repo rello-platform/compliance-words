@@ -107,7 +107,7 @@ const keyset = {
     armed: false,
     tokens: ["regz_rate_figure_no_apr", "udaap_rate_comparison"],
     note:
-      "regz_rate_figure_no_apr: a % that reads as a mortgage/interest RATE (rate cue near it) with NO 'APR' token nearby flags; a home-VALUE % (value cue, no rate cue) and an APR-disclosed rate are allowed — mirrors Milo composition-prompt-eval detectsRateFigure. udaap_rate_comparison: an unsubstantiated rate SELF-comparison ('below market', 'lower than other lenders', 'lowest/best rate', 'beat any rate', 'N bps below') flags; factual data-sourced market/value stats are allowed.",
+      "regz_rate_figure_no_apr: a % that reads as a mortgage/interest RATE (rate cue near it) with NO 'APR' token nearby flags; a home-VALUE % (value cue, no rate cue), an APR-disclosed rate, and (v0.4.0, Kelly ruling 2026-06-03) the LEAD'S OWN existing rate ('your current rate is 2.88%', 'you're sitting on a 2.94% rate', 'your 6.5% rate alert' — an own-rate cue near the % AND no prospective-OFFER cue) are allowed; a prospective OFFER ('your new rate could be 5.5%') and a MARKET/advertised rate ('rates are at 6.4%') STILL flag — mirrors Milo composition-prompt-eval detectsRateFigure. udaap_rate_comparison: an unsubstantiated rate SELF-comparison ('below market', 'lower than other lenders', 'lowest/best rate', 'beat any rate', 'N bps below') flags; factual data-sourced market/value stats are allowed.",
   },
 };
 
