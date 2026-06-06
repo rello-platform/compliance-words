@@ -104,6 +104,23 @@ const DISCLAIMER: AllowedContext = {
   note: "An explicitly-marked educational/referral disclaimer block (e.g. 'For loan questions, your loan officer can help you apply for a loan and lock your rate.') legitimately names the other lane's actions when steering the recipient TO that professional. The caller marks the range; fail-safe-strict if it does not.",
 };
 
+// OWN-RATE escape (v0.5.0, Kelly ruling 2026-06-03) — the LANE half of the
+// rate-claims `scanRegZ` lead-owned-rate carve-out, so the two scanners agree.
+// A possessive "your rate is …" form is only a CROSS-LANE rate OFFER when it
+// frames a rate the agent is QUOTING. A factual reference to the lead's OWN
+// existing rate ("your current rate is 2.88%", "your rate is still one of the
+// best") is not an offer — it is in-lane market chatter an agent may write. The
+// scanner excuses a `rate offer` match when, in the surrounding window, the
+// shared OWN_RATE_CUES fire AND the shared OFFER_CUES do NOT (so "your rate will
+// be 5.5%" / "your new rate could be 5.5%" / "I can offer you a rate of …" STILL
+// flag). The cue regexes are imported from rate-claims/scan.ts — SINGLE SOURCE
+// OF TRUTH, no duplicated/divergent list.
+const OWN_RATE: AllowedContext = {
+  kind: "own-rate",
+  pattern: "OWN_RATE_CUES near the match AND no OFFER_CUES (shared rate-claims regexes)",
+  note: "Lead-owned-rate escape (Kelly ruling 2026-06-03). A factual reference to the lead's OWN existing rate ('your current rate is 2.88%', 'your rate is still one of the best', 'you're sitting on a 2.94% rate', 'your 6.5% rate alert') is not a rate OFFER — outside the cross-lane scope. Excused IFF the shared OWN_RATE_CUES fire within OWN_RATE_WINDOW of the match AND no shared OFFER_CUES are present (a prospective 'your new rate could be 5.5%' / 'your rate will be 5.5%' / 'I can offer you a rate of …' STILL flags). Mirrors rate-claims scanRegZ and reuses its exact OWN_RATE_CUES/OFFER_CUES regexes (single source of truth).",
+};
+
 /**
  * The role-aware lane vocabulary. Every row is a wrong-lane OFFER / SOLICITATION
  * / ADVICE collocation — never a bare topical noun — so ordinary market context
@@ -136,9 +153,9 @@ export const LANE_REGISTRY: readonly LaneEntry[] = [
       "your rate would be",
     ],
     severity: "WARNING",
-    allowedContexts: [NEGATION, DISCLAIMER],
+    allowedContexts: [NEGATION, DISCLAIMER, OWN_RATE],
     rationale:
-      "Quoting a SPECIFIC interest rate as a personal offer is loan origination — an MLO act under the SAFE Act. Forbidden for an agent. DELIBERATELY NOT CAUGHT (false-positive guards): general market context an agent may freely cite — 'today's 30-year rates are around 6% per Freddie Mac', 'rates have come down', 'when rates drop you may want to refinance', 'ask your loan officer about current rates'. Only the possessive/first-person OFFER framing ('your rate is…', 'we can offer you a rate of…') trips this row.",
+      "Quoting a SPECIFIC interest rate as a personal offer is loan origination — an MLO act under the SAFE Act. Forbidden for an agent. DELIBERATELY NOT CAUGHT (false-positive guards): general market context an agent may freely cite — 'today's 30-year rates are around 6% per Freddie Mac', 'rates have come down', 'when rates drop you may want to refinance', 'ask your loan officer about current rates'. Only the possessive/first-person OFFER framing ('your rate is…', 'we can offer you a rate of…') trips this row. OWN-RATE ESCAPE (v0.5.0, Kelly ruling 2026-06-03 — mirrors the rate-claims scanRegZ carve-out so the two scanners agree): a FACTUAL reference to the lead's OWN existing rate is NOT an offer and is excused — 'your current rate is 2.88%', 'your rate is still one of the best out there', 'you're sitting on a 2.94% rate', 'your 6.5% rate alert' do NOT flag (own-rate cue near the match, no prospective-offer cue). A PROSPECTIVE offer under a possessive 'your' STILL flags — 'your rate will be 5.5%', 'your new rate could be 5.5%', 'I can offer you a rate of …' (the shared OFFER_CUES override). Uses the exact OWN_RATE_CUES/OFFER_CUES regexes imported from rate-claims (single source of truth).",
     suggest: "refer the recipient to their loan officer for any rate quote",
   },
   {

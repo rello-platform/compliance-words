@@ -132,6 +132,10 @@ describe("rate-claims — REG-Z lead-owned-rate escape", () => {
       "Your new rate could be 5.5%.",
       "We could get your rate down to 5.5%.",
       "You could get a 5.5% rate if you refi.",
+      // v0.5.0: future-tense quote is a prospective offer (shared OFFER_CUES gained
+      // "will be"/"would be" so the lane + rate-claims scanners agree).
+      "Your rate will be 5.5%.",
+      "Your rate would be 5.5% after closing.",
     ]) {
       assert.ok(
         tokensOf(t).includes("regz_rate_figure_no_apr"),

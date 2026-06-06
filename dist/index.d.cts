@@ -42,8 +42,16 @@ interface AllowedContext {
      * - `disclaimer-banner`: the token's char offset falls inside a range the CALLER
      *   marked as an illustrative/disclaimer block (`CheckOptions.disclaimerRanges`)
      *   → allowed. Fail-safe-strict: an unmarked banner still HARD_BLOCKs.
+     * - `own-rate`: (lane checker only, v0.5.0) the match sits in a context that
+     *   references the LEAD'S OWN EXISTING rate (`OWN_RATE_CUES` near the match) and
+     *   carries NO prospective-offer framing (`OFFER_CUES` absent) → it is a factual
+     *   statement about the customer's existing rate, not a rate OFFER, so it is
+     *   allowed. Mirrors the rate-claims `scanRegZ` lead-owned-rate escape (Kelly
+     *   ruling 2026-06-03) and REUSES the exact same shared cue regexes, so the two
+     *   scanners agree. The M7 `checkCompliance` matcher does NOT implement this kind
+     *   (no M7 row carries it); only `scanLaneViolations` honors it.
      */
-    readonly kind: "negation" | "compound" | "disclaimer-banner";
+    readonly kind: "negation" | "compound" | "disclaimer-banner" | "own-rate";
     /** Documented, reviewable matcher. For `compound` this is the fixed phrase the
      *  checker searches for; for `negation`/`disclaimer-banner` it is human-readable
      *  documentation of the rule (the mechanism is generic, not pattern-parsed). */
@@ -287,6 +295,18 @@ declare function listLaneEntries(lane?: Lane): readonly LaneEntry[];
  * Returns `{ token, message, severity }` per the dispatch contract, plus the
  * match offset / matchedText / lane / suggest for actionable consumers.
  *
+ * OWN-RATE ESCAPE (v0.5.0, Kelly ruling 2026-06-03). The AGENT `rate offer` row
+ * carries an `own-rate` allowed-context: a possessive "your rate is …" match is
+ * EXCUSED when the surrounding window references the lead's OWN existing rate
+ * (`OWN_RATE_CUES`) with no prospective-offer framing (`OFFER_CUES`) — "your
+ * current rate is 2.88%", "your rate is still one of the best", "you're sitting on
+ * a 2.94% rate", "your 6.5% rate alert" no longer false-flag as MLO-lane rate
+ * offers. A real offer STILL flags ("your rate will be 5.5%", "your new rate could
+ * be 5.5%", "I can offer you a rate of …"). This REUSES the exact OWN_RATE_CUES /
+ * OFFER_CUES regexes from `../rate-claims/scan.ts` (single source of truth), so
+ * the lane checker and the rate-claims checker agree on what "the lead's own rate"
+ * means. Only the `rate offer` row is affected; all other lane rows are unchanged.
+ *
  * Pure function over text; no I/O, no throw on bad input.
  */
 
@@ -372,8 +392,9 @@ declare function hasLaneViolation(text: string, role: Role, opts?: ScanLaneOptio
  * in a lead-OWNED-rate context (`OWN_RATE_CUES`) is allowed, mirroring the
  * home-VALUE escape — UNLESS a PROSPECTIVE-OFFER cue (`OFFER_CUES`: "new rate",
  * "could be/get", "you could", "refi", "lock you in", …) also sits near the %, in
- * which case it is an advertised offer ("your new rate could be 5.5%") and STILL
- * flags. ONLY a MARKET / advertised-OFFER rate without APR is the real violation.
+ * which case it is an advertised offer ("your new rate could be 5.5%", "your rate
+ * will be 5.5%") and STILL flags. ONLY a MARKET / advertised-OFFER rate without
+ * APR is the real violation.
  *
  *   FLAGS:   "the 30-year fixed is sitting around 5.5% right now"
  *            "I'm offering 6.1% on a 30-year fixed"
@@ -381,6 +402,8 @@ declare function hasLaneViolation(text: string, role: Role, opts?: ScanLaneOptio
  *            "rates are at 6.4%" / "30-yr is now 6%"
  *            "rates near 6%"
  *            "your new rate could be 5.5%" (PROSPECTIVE offer, not existing rate)
+ *            "your rate will be 5.5%" / "your rate would be 5.5%" (FUTURE-TENSE
+ *            quote = a prospective offer, not the lead's existing rate — v0.5.0)
  *            a bare "6.125%" with no value/own-rate context (conservative — a
  *            stray rate number must still trip the ban)
  *   ALLOWS:  "6.1% APR on a 30-year fixed" (APR disclosed)

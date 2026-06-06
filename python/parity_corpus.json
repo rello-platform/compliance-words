@@ -19,6 +19,16 @@
     { "text": "I am not your loan officer and cannot lock your rate — talk to your MLO.", "role": "AGENT" },
     { "text": "You qualify for a property-tax exemption this year.", "role": "AGENT" },
 
+    { "text": "Justin, your rate is kind of a big deal. Your current rate is sitting at 2.88%.", "role": "AGENT" },
+    { "text": "Your rate is still one of the best out there. You're sitting on a 2.94% rate.", "role": "AGENT" },
+    { "text": "Your current rate is 2.88%.", "role": "AGENT" },
+    { "text": "Saw your 6.5% rate alert come through.", "role": "AGENT" },
+    { "text": "Their current rate is 3.1% on the existing loan.", "role": "AGENT" },
+    { "text": "Your rate will be 5.5%.", "role": "AGENT" },
+    { "text": "Your rate would be 5.5% after closing.", "role": "AGENT" },
+    { "text": "We could get your rate down to 5.5%.", "role": "AGENT" },
+    { "text": "I can offer you a rate of 5.5%.", "role": "AGENT" },
+
     { "text": "List your home with me this spring.", "role": "MLO" },
     { "text": "I will sell your home fast.", "role": "MLO" },
     { "text": "As your real estate agent, I'll guide you.", "role": "MLO" },

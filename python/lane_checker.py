@@ -15,8 +15,16 @@ that verdict-for-verdict.
 
 A lane row produces a LaneViolation ONLY IF it matches at a word boundary AND
 none of its allowedContexts fires (negation / compound / caller-marked
-disclaimer range) AND its `lane` is out-of-lane for the caller's role. DRAFT
-posture: every row is WARNING; this scanner never blocks on its own.
+disclaimer range / own-rate) AND its `lane` is out-of-lane for the caller's role.
+DRAFT posture: every row is WARNING; this scanner never blocks on its own.
+
+OWN-RATE ESCAPE (v0.5.0, Kelly ruling 2026-06-03). The AGENT `rate offer` row
+carries an `own-rate` allowed-context: a possessive "your rate is …" match is
+excused when the surrounding window references the lead's OWN existing rate
+(OWN_RATE_CUES) with no prospective-offer framing (OFFER_CUES). Reuses the EXACT
+shared cue regexes imported from `rate_claims.py` (single source of truth) so the
+Python lane checker and the Python rate-claims checker agree — mirroring the TS
+side where `src/lanes/scan.ts` imports them from `src/rate-claims/scan.ts`.
 
 Pure functions over text — no I/O at call time (the keyset is loaded once at
 import), no throw on bad input.
@@ -25,6 +33,13 @@ import), no throw on bad input.
 import json
 import os
 import re
+
+# OWN-RATE escape (v0.5.0): the LANE checker's AGENT `rate offer` rule reuses the
+# EXACT shared own-rate / offer cue regexes + window from the rate-claims scanner —
+# single source of truth, so the two Python scanners never carry two divergent
+# own-rate definitions (mirrors src/lanes/scan.ts importing them from
+# src/rate-claims/scan.ts).
+from rate_claims import OWN_RATE_CUES, OFFER_CUES, OWN_RATE_WINDOW
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 # Default to a sibling dist artifact; a consumer (Report-Engine) overrides via
@@ -107,6 +122,7 @@ class _CompiledLane(object):
         "negation_proximity",
         "list_negation_proximity",
         "has_disclaimer",
+        "has_own_rate",
     )
 
 
@@ -138,6 +154,11 @@ def _compile_lane_registry(keyset):
         )
         ce.list_negation_proximity = _DEFAULT_LIST_NEGATION_PROXIMITY
         ce.has_disclaimer = any(c["kind"] == "disclaimer-banner" for c in contexts)
+        # v0.5.0: own-rate escape (lane-only). The shared match engine knows only
+        # negation/compound/disclaimer; the own-rate carve-out is applied in the
+        # scan loop via the shared OWN_RATE_CUES/OFFER_CUES regexes (mirrors the
+        # rate-claims scanRegZ lead-owned-rate escape — single source of truth).
+        ce.has_own_rate = any(c["kind"] == "own-rate" for c in contexts)
         compiled.append(ce)
     return compiled
 
@@ -210,6 +231,21 @@ def _within_any_compound(offset, spans):
     return any(offset >= start and offset < end for start, end in spans)
 
 
+def _is_own_rate(masked, match_index, match_length):
+    """OWN-RATE escape (v0.5.0, Kelly ruling 2026-06-03). True iff the window
+    around a `rate offer` match references the LEAD'S OWN existing rate
+    (OWN_RATE_CUES) and carries NO prospective-offer framing (OFFER_CUES). Mirrors
+    the rate-claims _scan_regz lead-owned-rate escape and reuses its exact shared
+    cue regexes + window, so the lane and rate-claims scanners agree: "your current
+    rate is 2.88%" / "your rate is still one of the best" are excused, while "your
+    rate will be 5.5%" / "your new rate could be 5.5%" / "I can offer you a rate of
+    …" STILL flag."""
+    start = max(0, match_index - OWN_RATE_WINDOW)
+    end = min(len(masked), match_index + match_length + OWN_RATE_WINDOW)
+    ctx = masked[start:end]
+    return bool(OWN_RATE_CUES.search(ctx)) and not OFFER_CUES.search(ctx)
+
+
 def _lanes_for_role(role):
     if role in _ROLE_LANE_MAP:
         return list(_ROLE_LANE_MAP[role])
@@ -276,6 +312,11 @@ def scan_lane_violations(text, role, disclaimer_ranges=None, severity_floor=None
             index = m.start()
             matched_text = text[index:index + len(m.group(0))]
 
+            # OWN-RATE escape (v0.5.0): excuse a `rate offer` match that references
+            # the lead's OWN existing rate with no prospective-offer cue. Mirrors
+            # the rate-claims _scan_regz carve-out via the SAME shared regexes.
+            if compiled.has_own_rate and _is_own_rate(masked, index, len(m.group(0))):
+                continue
             if _within_any_compound(index, compound_spans):
                 continue
             if compiled.has_disclaimer and _within_any_range(index, disclaimer_ranges):

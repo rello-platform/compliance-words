@@ -455,7 +455,7 @@ describe("dist/compliance-words-keyset.json", () => {
 
   it("names the package + version and carries all 11 entries", () => {
     assert.equal(keyset.package, "@rello-platform/compliance-words");
-    assert.equal(keyset.version, "0.4.0");
+    assert.equal(keyset.version, "0.5.0");
     assert.equal(keyset.entries.length, 11);
   });
 

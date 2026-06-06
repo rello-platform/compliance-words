@@ -43,8 +43,9 @@
  * in a lead-OWNED-rate context (`OWN_RATE_CUES`) is allowed, mirroring the
  * home-VALUE escape — UNLESS a PROSPECTIVE-OFFER cue (`OFFER_CUES`: "new rate",
  * "could be/get", "you could", "refi", "lock you in", …) also sits near the %, in
- * which case it is an advertised offer ("your new rate could be 5.5%") and STILL
- * flags. ONLY a MARKET / advertised-OFFER rate without APR is the real violation.
+ * which case it is an advertised offer ("your new rate could be 5.5%", "your rate
+ * will be 5.5%") and STILL flags. ONLY a MARKET / advertised-OFFER rate without
+ * APR is the real violation.
  *
  *   FLAGS:   "the 30-year fixed is sitting around 5.5% right now"
  *            "I'm offering 6.1% on a 30-year fixed"
@@ -52,6 +53,8 @@
  *            "rates are at 6.4%" / "30-yr is now 6%"
  *            "rates near 6%"
  *            "your new rate could be 5.5%" (PROSPECTIVE offer, not existing rate)
+ *            "your rate will be 5.5%" / "your rate would be 5.5%" (FUTURE-TENSE
+ *            quote = a prospective offer, not the lead's existing rate — v0.5.0)
  *            a bare "6.125%" with no value/own-rate context (conservative — a
  *            stray rate number must still trip the ban)
  *   ALLOWS:  "6.1% APR on a 30-year fixed" (APR disclosed)
@@ -184,7 +187,12 @@ const APR_PRESENT = /\bapr\b|\ba\.p\.r\.|\bannual percentage rate\b/i;
 //   their (current|existing) rate | rate alert | you're/you are sitting on |
 //   your <N>% rate (possessive + figure + "rate") |
 //   the rate you have/had/locked/got/are | you've/you're (on|paying) the rate
-const OWN_RATE_CUES =
+//
+// SHARED SOURCE OF TRUTH (v0.5.0): exported so the LANE checker's AGENT
+// `rate offer` rule reuses this EXACT regex (src/lanes/scan.ts imports it) — the
+// two scanners must never drift two divergent own-rate definitions. The Python
+// halves (python/rate_claims.py + python/lane_checker.py) mirror this verbatim.
+export const OWN_RATE_CUES =
   /\byour\s+(?:current\s+|existing\s+|locked(?:[\s-]?in)?\s+)?rate\b|\btheir\s+(?:current\s+|existing\s+)?rate\b|\brate\s+alert\b|\byou(?:'re|\s+are)\s+sitting\s+on\b|\byour\s+\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent)\s+rate\b|\bthe\s+rate\s+you(?:'?ve|'?re|\s+(?:have|had|locked|got|are))\b/i;
 
 // OFFER GUARD — a PROSPECTIVE / advertised-offer framing. Even when a possessive
@@ -192,11 +200,22 @@ const OWN_RATE_CUES =
 // offer (NOT the lead's existing rate) so it STILL flags:
 //   (your|a) new rate | rate could be | could be/get/drop/go/lock/save/qualify |
 //   you could … | we could … | refi(nance) | get you (down) to | qualify for |
-//   down to <rate> | as low as | lock you in | we can get/offer/lock
+//   down to <rate> | as low as | lock you in | we can get/offer/lock |
+//   will be | would be (FUTURE-TENSE quote = a prospective offer, not a fact —
+//   added v0.5.0 so "your rate will be 5.5%" / "your rate would be 5.5%" stay
+//   flagged in BOTH scanners; present-tense "your rate is 2.88%" stays allowed)
 // Boundary: "your current rate is 2.88%" → existing fact, ALLOWED.
-//           "your new rate could be 5.5%" → prospective offer, FLAGGED.
-const OFFER_CUES =
-  /\bnew\s+rate\b|\bcould\s+(?:be|get|drop|go|lock|save|qualify)\b|\byou\s+could\b|\bwe\s+could\b|\brefi(?:nance)?\b|\bget\s+you\b|\bqualify\s+for\b|\bdown\s+to\b|\bas\s+low\s+as\b|\block\s+you\s+in\b|\bwe\s+can\s+(?:get|offer|lock)\b/i;
+//           "your new rate could be 5.5%" / "your rate will be 5.5%" → prospective
+//           offer, FLAGGED.
+//
+// SHARED SOURCE OF TRUTH (v0.5.0): exported alongside OWN_RATE_CUES for the LANE
+// checker — same single-list discipline (no copy-paste divergence).
+export const OFFER_CUES =
+  /\bnew\s+rate\b|\bcould\s+(?:be|get|drop|go|lock|save|qualify)\b|\byou\s+could\b|\bwe\s+could\b|\brefi(?:nance)?\b|\bget\s+you\b|\bqualify\s+for\b|\bdown\s+to\b|\bas\s+low\s+as\b|\block\s+you\s+in\b|\bwe\s+can\s+(?:get|offer|lock)\b|\bwill\s+be\b|\bwould\s+be\b/i;
+
+/** Window (chars) scanned on each side of a phrase match for own-rate/offer cues
+ *  — shared with the LANE checker so both scanners use the identical proximity. */
+export const OWN_RATE_WINDOW = WINDOW;
 
 function scanRegZ(text: string, masked: string): Array<{ index: number; matchedText: string }> {
   const lower = masked.toLowerCase();

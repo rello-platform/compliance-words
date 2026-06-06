@@ -32,7 +32,7 @@ describe("lane registry — shape", () => {
       assert.ok(["HARD_BLOCK", "WARNING", "REVIEW_FLAG"].includes(e.severity), `${e.token}: severity`);
       assert.ok(Array.isArray(e.allowedContexts), `${e.token}: allowedContexts`);
       for (const c of e.allowedContexts) {
-        assert.ok(["negation", "compound", "disclaimer-banner"].includes(c.kind), `${e.token}: ctx.kind`);
+        assert.ok(["negation", "compound", "disclaimer-banner", "own-rate"].includes(c.kind), `${e.token}: ctx.kind`);
         assert.equal(typeof c.pattern, "string", `${e.token}: ctx.pattern`);
         assert.equal(typeof c.note, "string", `${e.token}: ctx.note`);
       }
@@ -111,6 +111,53 @@ describe("AGENT lane — general market context is NOT flagged", () => {
       assert.deepEqual(scanLaneViolations(text, "AGENT"), [], JSON.stringify(scanLaneViolations(text, "AGENT")));
     });
   }
+});
+
+// ── (c2) AGENT `rate offer` OWN-RATE escape (v0.5.0, Kelly ruling 2026-06-03) ─
+// The lead's OWN existing rate is a factual reference, NOT a cross-lane offer.
+// Mirrors the rate-claims scanRegZ lead-owned-rate carve-out (shared cue regexes)
+// so the two scanners agree. Only the `rate offer` row is affected.
+describe("AGENT lane — rate-offer own-rate escape (lead's own existing rate)", () => {
+  it("does NOT flag a factual reference to the lead's OWN existing rate", () => {
+    const clean = [
+      // The two real shadow-replay false positives from the dispatch:
+      "Justin, your rate is kind of a big deal. Your current rate is sitting at 2.88%.",
+      "Your rate is still one of the best out there. You're sitting on a 2.94% rate.",
+      // The dispatch's four required-ALLOW examples:
+      "your current rate is 2.88%",
+      "your rate is still one of the best",
+      "you're sitting on a 2.94% rate",
+      "your 6.5% rate alert",
+      "Their current rate is 3.1% on the existing loan.",
+    ];
+    for (const t of clean) {
+      assert.ok(
+        !tokensOf(t, "AGENT").includes("rate offer"),
+        `expected NO rate-offer flag (own rate): ${t} -> ${JSON.stringify(scanLaneViolations(t, "AGENT"))}`,
+      );
+    }
+  });
+
+  it("STILL flags a real prospective rate OFFER (the OFFER_CUES override)", () => {
+    // Each of these matches the `rate offer` row AND must keep flagging — the
+    // future-tense / first-person OFFER framing overrides the own-rate escape.
+    // ("will be"/"would be" are in the shared OFFER_CUES; "I can offer you a rate"
+    // carries no own-rate cue at all so the escape never applies.)
+    assert.deepEqual(tokensOf("your rate will be 5.5%", "AGENT"), ["rate offer"]);
+    assert.deepEqual(tokensOf("your rate would be 5.5% after closing", "AGENT"), ["rate offer"]);
+    assert.deepEqual(tokensOf("I can offer you a rate of 5.5%", "AGENT"), ["rate offer"]);
+    assert.deepEqual(tokensOf("we can offer you a rate of 6.1%", "AGENT"), ["rate offer"]);
+  });
+
+  it("the escape is scoped to `rate offer` — other lane rows still flag near own-rate text", () => {
+    // "lock in your rate" / "lock your rate" still flags via its own row even
+    // when an own-rate phrase sits beside it.
+    assert.ok(tokensOf("Your current rate is 2.88% — let's lock your rate.", "AGENT").includes("lock your rate"));
+    assert.ok(tokensOf("lock in your rate", "AGENT").includes("lock your rate"));
+    assert.ok(tokensOf("you qualify for a lower rate", "AGENT").includes("you qualify for"));
+    assert.ok(tokensOf("I can get you approved", "AGENT").includes("approved for a loan"));
+    assert.ok(tokensOf("rates as low as 5.5%", "AGENT").includes("apr trigger term"));
+  });
 });
 
 // ── (d) MLO lane — agent-only language flagged for an MLO (positive) ─────────
@@ -283,6 +330,6 @@ describe("dist/compliance-words-keyset.json — lane block", () => {
 
   it("does NOT disturb the M7 entries block (additive)", () => {
     assert.equal(keyset.entries.length, 11);
-    assert.equal(keyset.version, "0.4.0");
+    assert.equal(keyset.version, "0.5.0");
   });
 });

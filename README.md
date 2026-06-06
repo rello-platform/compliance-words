@@ -52,6 +52,7 @@ at a word boundary **and** none of its allowed contexts fires:
 | **negation** | a cue (`not`/`never`/`no`/`isn't`/`won't`…) sits within `proximity` words before the match in the same clause — **or**, since v0.1.1, within the wider `listNegationProximity` window when a comma/`or`/`nor` coordinator lies between the cue and the match, so a single cue distributes over a coordinated NOT-THAT list (`"never call it an offer, a quote, an approval, a lock, or a pre-qualification"`). The scan stops at a sentence terminator **or** a clause breaker (`so`, `but`, `because`…), so a negation never crosses into a later clause. |
 | **compound** | the match is inside a registered fixed term (`"guarantee fee"`, `"hud-approved"`, `"rate-lock confirmation"`, `"final disclosure"`). |
 | **disclaimer-banner** | the match offset is inside a caller-supplied `disclaimerRanges` block (illustrative banners). **Fail-safe-strict**: an unmarked banner still HARD_BLOCKs. (`guarantee` and `pre-qualified` gained this allowance in v0.1.1.) |
+| **own-rate** *(lane checker only, v0.5.0)* | the match references the lead's **OWN existing rate** (`OWN_RATE_CUES` near the match) with **no prospective-offer framing** (`OFFER_CUES` absent) — a factual reference, not a rate offer. Only the AGENT `rate offer` lane row carries it; it reuses the exact shared cue regexes from the rate-claims scanner so the two scanners agree. M7 `checkCompliance` does not implement this kind. |
 
 `word-stem`/`word` forms match at word boundaries (so `quote` ≠ `quotient`,
 `lock` ≠ `block`, `final` ≠ `finalize`); `AI` is matched **case-sensitively**
@@ -84,6 +85,28 @@ Two additive **compound** allowances (no new mechanism — both ride the existin
   registered narrowly so the genuine promotional claim still blocks: `"loan
   approval"` ("Get loan approval today"), bare `"approved"` ("you're approved!"),
   and `"guarantee approval"` carry no gate compound and remain HARD_BLOCK.
+
+### v0.5.0 — lane checker own-rate escape (lead's existing rate is not an offer)
+
+Ports the v0.4.0 rate-claims **lead-owned-rate** carve-out into the **lane**
+checker so the two scanners agree (Kelly ruling 2026-06-03: *"you should be able
+to mention the rate of the lead"*). A shadow-replay showed `scanLaneViolations(text,
+"AGENT")` was flagging the lead's OWN existing rate as an MLO-lane "rate offer"
+(e.g. *"your current rate is sitting at 2.88%"*, *"you're sitting on a 2.94%
+rate"*) — factual references, not offers.
+
+- The AGENT **`rate offer`** lane row gains an **`own-rate`** allowed-context: a
+  possessive *"your rate is …"* match is excused when the surrounding window
+  references the lead's own existing rate (`OWN_RATE_CUES`) with no prospective-
+  offer framing (`OFFER_CUES`). A real offer **still flags** — *"your rate will be
+  5.5%"*, *"your new rate could be 5.5%"*, *"I can offer you a rate of …"*.
+- **Single source of truth:** the lane checker imports the **exact** `OWN_RATE_CUES`
+  / `OFFER_CUES` regexes from `src/rate-claims/scan.ts` (Python: `lane_checker.py`
+  imports them from `rate_claims.py`) — no duplicated/divergent list. `OFFER_CUES`
+  also gained `will be` / `would be` (a future-tense quote is a prospective offer),
+  so **both** scanners now flag *"your rate will be 5.5%"*.
+- Other lane rows and the MLO lane are **unchanged**; DUAL still returns `[]`;
+  default severity stays **WARNING / armed=false** (no arming change).
 
 ### Audience scope — borrower-facing only (ruling 3)
 
@@ -171,7 +194,7 @@ does NOT catch** (the false-positive guard).
 
 | # | Rule (`token`) | Banned phrasings (any of) | Deliberately NOT caught |
 |---|---|---|---|
-| A1 | **rate offer** | "your rate is / will be / would be", "your interest rate is / will be", "we/I can offer you a rate (of)", "I can get you a rate", "we'll / I'll give you a rate", "a special / an exclusive rate of" | General market rates ("30-year rates are around 6% per Freddie Mac", "rates have come down", "ask your loan officer about current rates"). |
+| A1 | **rate offer** | "your rate is / will be / would be", "your interest rate is / will be", "we/I can offer you a rate (of)", "I can get you a rate", "we'll / I'll give you a rate", "a special / an exclusive rate of" | General market rates ("30-year rates are around 6% per Freddie Mac", "rates have come down", "ask your loan officer about current rates"). **OWN-RATE escape (v0.5.0, Kelly ruling 2026-06-03):** a factual reference to the lead's OWN existing rate ("your current rate is 2.88%", "your rate is still one of the best", "you're sitting on a 2.94% rate", "your 6.5% rate alert") — own-rate cue near the match, no prospective-offer cue. Mirrors the rate-claims `scanRegZ` carve-out (shared `OWN_RATE_CUES`/`OFFER_CUES`) so the two scanners agree; a prospective offer under "your" STILL flags ("your rate will be 5.5%", "I can offer you a rate of …"). |
 | A2 | **you qualify for** | "you (may / 'll) qualify for a loan / mortgage / financing / a rate (of) / a loan amount / up to / a lower rate", "you pre-qualify for a loan" | Non-loan eligibility ("you qualify for a property-tax exemption", "homes that qualify for this program"). |
 | A3 | **approved for a loan** | "you're / you are approved (or pre-approved) for a loan / mortgage", "you're / you are pre-approved", "I/we can get you approved", "you've been approved for financing" | Non-loan approvals ("your offer was approved by the seller", "the HOA approved your application", "HUD-approved counselor"). |
 | A4 | **lock your rate** | "lock (in) your rate / interest rate", "let's / we can / I can lock your rate", "lock your rate today", "lock in a low / great rate" | Unrelated "lock" ("lock the front door", "lock box code", builder "price lock"). |

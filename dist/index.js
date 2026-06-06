@@ -551,6 +551,11 @@ var DISCLAIMER2 = {
   pattern: "match offset within a caller-supplied disclaimerRanges block",
   note: "An explicitly-marked educational/referral disclaimer block (e.g. 'For loan questions, your loan officer can help you apply for a loan and lock your rate.') legitimately names the other lane's actions when steering the recipient TO that professional. The caller marks the range; fail-safe-strict if it does not."
 };
+var OWN_RATE = {
+  kind: "own-rate",
+  pattern: "OWN_RATE_CUES near the match AND no OFFER_CUES (shared rate-claims regexes)",
+  note: "Lead-owned-rate escape (Kelly ruling 2026-06-03). A factual reference to the lead's OWN existing rate ('your current rate is 2.88%', 'your rate is still one of the best', 'you're sitting on a 2.94% rate', 'your 6.5% rate alert') is not a rate OFFER \u2014 outside the cross-lane scope. Excused IFF the shared OWN_RATE_CUES fire within OWN_RATE_WINDOW of the match AND no shared OFFER_CUES are present (a prospective 'your new rate could be 5.5%' / 'your rate will be 5.5%' / 'I can offer you a rate of \u2026' STILL flags). Mirrors rate-claims scanRegZ and reuses its exact OWN_RATE_CUES/OFFER_CUES regexes (single source of truth)."
+};
 var LANE_REGISTRY = [
   // ════════════════════════════════════════════════════════════════════════
   // AGENT_LANE_VIOLATION — MLO-only language an AGENT must not use.
@@ -578,8 +583,8 @@ var LANE_REGISTRY = [
       "your rate would be"
     ],
     severity: "WARNING",
-    allowedContexts: [NEGATION2, DISCLAIMER2],
-    rationale: "Quoting a SPECIFIC interest rate as a personal offer is loan origination \u2014 an MLO act under the SAFE Act. Forbidden for an agent. DELIBERATELY NOT CAUGHT (false-positive guards): general market context an agent may freely cite \u2014 'today's 30-year rates are around 6% per Freddie Mac', 'rates have come down', 'when rates drop you may want to refinance', 'ask your loan officer about current rates'. Only the possessive/first-person OFFER framing ('your rate is\u2026', 'we can offer you a rate of\u2026') trips this row.",
+    allowedContexts: [NEGATION2, DISCLAIMER2, OWN_RATE],
+    rationale: "Quoting a SPECIFIC interest rate as a personal offer is loan origination \u2014 an MLO act under the SAFE Act. Forbidden for an agent. DELIBERATELY NOT CAUGHT (false-positive guards): general market context an agent may freely cite \u2014 'today's 30-year rates are around 6% per Freddie Mac', 'rates have come down', 'when rates drop you may want to refinance', 'ask your loan officer about current rates'. Only the possessive/first-person OFFER framing ('your rate is\u2026', 'we can offer you a rate of\u2026') trips this row. OWN-RATE ESCAPE (v0.5.0, Kelly ruling 2026-06-03 \u2014 mirrors the rate-claims scanRegZ carve-out so the two scanners agree): a FACTUAL reference to the lead's OWN existing rate is NOT an offer and is excused \u2014 'your current rate is 2.88%', 'your rate is still one of the best out there', 'you're sitting on a 2.94% rate', 'your 6.5% rate alert' do NOT flag (own-rate cue near the match, no prospective-offer cue). A PROSPECTIVE offer under a possessive 'your' STILL flags \u2014 'your rate will be 5.5%', 'your new rate could be 5.5%', 'I can offer you a rate of \u2026' (the shared OFFER_CUES override). Uses the exact OWN_RATE_CUES/OFFER_CUES regexes imported from rate-claims (single source of truth).",
     suggest: "refer the recipient to their loan officer for any rate quote"
   },
   {
@@ -957,66 +962,6 @@ function listLaneEntries(lane) {
   return lane ? LANE_REGISTRY.filter((e) => e.lane === lane) : LANE_REGISTRY;
 }
 
-// src/lanes/scan.ts
-var COMPILED2 = LANE_REGISTRY.map((entry) => ({
-  entry,
-  matcher: compileMatcher(entry)
-}));
-var SEVERITY_RANK = {
-  REVIEW_FLAG: 0,
-  WARNING: 1,
-  HARD_BLOCK: 2
-};
-function applyFloor(rowSeverity, floor) {
-  if (!floor) return rowSeverity;
-  return SEVERITY_RANK[floor] > SEVERITY_RANK[rowSeverity] ? floor : rowSeverity;
-}
-function lanesForRole(role) {
-  switch (role) {
-    case "AGENT":
-      return ["AGENT_LANE_VIOLATION"];
-    case "MLO":
-      return ["MLO_LANE_VIOLATION"];
-    case "DUAL":
-      return [];
-    default:
-      return ["AGENT_LANE_VIOLATION", "MLO_LANE_VIOLATION"];
-  }
-}
-function buildMessage2(entry, matchedText, index, severity) {
-  const laneLabel = entry.lane === "AGENT_LANE_VIOLATION" ? "MLO-only language in an agent's copy" : "agent-only language in an MLO's copy";
-  const base = `\u26A0 ${severity} [lane]: "${matchedText}" is ${laneLabel} ("${entry.token}") at offset ${index}`;
-  return entry.suggest ? `${base} \u2192 ${entry.suggest}` : base;
-}
-function scanLaneViolations(text, role, opts = {}) {
-  if (typeof text !== "string" || text.length === 0) return [];
-  const applicable = new Set(lanesForRole(role));
-  if (applicable.size === 0) return [];
-  const masked = maskHtml(text);
-  const words = indexWords(masked);
-  const violations = [];
-  for (const { entry, matcher } of COMPILED2) {
-    if (!applicable.has(entry.lane)) continue;
-    for (const { index, matchedText } of runMatcher(matcher, text, masked, words, opts.disclaimerRanges)) {
-      const severity = applyFloor(entry.severity, opts.severityFloor);
-      violations.push({
-        token: entry.token,
-        lane: entry.lane,
-        severity,
-        index,
-        matchedText,
-        suggest: entry.suggest,
-        message: buildMessage2(entry, matchedText, index, severity)
-      });
-    }
-  }
-  violations.sort((a, b) => a.index - b.index || a.token.localeCompare(b.token));
-  return violations;
-}
-function hasLaneViolation(text, role, opts = {}) {
-  return scanLaneViolations(text, role, opts).length > 0;
-}
-
 // src/rate-claims/scan.ts
 var RATE_CLAIM_CONFIG = {
   status: "DRAFT",
@@ -1025,14 +970,14 @@ var RATE_CLAIM_CONFIG = {
   tokens: ["regz_rate_figure_no_apr", "udaap_rate_comparison"]
 };
 var DEFAULT_SEVERITY = "WARNING";
-var SEVERITY_RANK2 = {
+var SEVERITY_RANK = {
   REVIEW_FLAG: 0,
   WARNING: 1,
   HARD_BLOCK: 2
 };
-function applyFloor2(rowSeverity, floor) {
+function applyFloor(rowSeverity, floor) {
   if (!floor) return rowSeverity;
-  return SEVERITY_RANK2[floor] > SEVERITY_RANK2[rowSeverity] ? floor : rowSeverity;
+  return SEVERITY_RANK[floor] > SEVERITY_RANK[rowSeverity] ? floor : rowSeverity;
 }
 function withinAnyRange2(offset, ranges) {
   if (!ranges) return false;
@@ -1044,7 +989,8 @@ var RATE_CUES = /\brate\b|\brates\b|\bmortgage\b|\bapr\b|\bloan\b|\b30[\s-]?(?:y
 var VALUE_CUES = /\bup\b|from last year|year[\s-]?over[\s-]?year|\byoy\b|\bprices?\b|home values?|\bvalues?\b|\bworth\b|appreciat|\bgained\b|\bgaining\b|\brose\b|\brisen\b|\brising\b|climbed|\bequity\b|\bappreciation\b/i;
 var APR_PRESENT = /\bapr\b|\ba\.p\.r\.|\bannual percentage rate\b/i;
 var OWN_RATE_CUES = /\byour\s+(?:current\s+|existing\s+|locked(?:[\s-]?in)?\s+)?rate\b|\btheir\s+(?:current\s+|existing\s+)?rate\b|\brate\s+alert\b|\byou(?:'re|\s+are)\s+sitting\s+on\b|\byour\s+\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent)\s+rate\b|\bthe\s+rate\s+you(?:'?ve|'?re|\s+(?:have|had|locked|got|are))\b/i;
-var OFFER_CUES = /\bnew\s+rate\b|\bcould\s+(?:be|get|drop|go|lock|save|qualify)\b|\byou\s+could\b|\bwe\s+could\b|\brefi(?:nance)?\b|\bget\s+you\b|\bqualify\s+for\b|\bdown\s+to\b|\bas\s+low\s+as\b|\block\s+you\s+in\b|\bwe\s+can\s+(?:get|offer|lock)\b/i;
+var OFFER_CUES = /\bnew\s+rate\b|\bcould\s+(?:be|get|drop|go|lock|save|qualify)\b|\byou\s+could\b|\bwe\s+could\b|\brefi(?:nance)?\b|\bget\s+you\b|\bqualify\s+for\b|\bdown\s+to\b|\bas\s+low\s+as\b|\block\s+you\s+in\b|\bwe\s+can\s+(?:get|offer|lock)\b|\bwill\s+be\b|\bwould\s+be\b/i;
+var OWN_RATE_WINDOW = WINDOW;
 function scanRegZ(text, masked) {
   const lower = masked.toLowerCase();
   const out = [];
@@ -1108,7 +1054,7 @@ function scanUdaap(text, masked) {
 }
 var REGZ_SUGGEST = "omit the rate figure (or pair it with APR) and use directional language ('rates have eased') \u2014 rate quotes come from the loan officer";
 var UDAAP_SUGGEST = "remove the rate self-comparison; cite only factual, data-sourced market/value stats";
-function buildMessage3(token, matchedText, index, severity, suggest) {
+function buildMessage2(token, matchedText, index, severity, suggest) {
   const label = token === "regz_rate_figure_no_apr" ? "a stated mortgage-rate figure without a nearby APR (Reg Z / TILA \xA71026.24)" : "an unsubstantiated rate self-comparison (CFPB UDAAP)";
   return `\u26A0 ${severity} [rate-claim]: "${matchedText}" is ${label} ("${token}") at offset ${index} \u2192 ${suggest}`;
 }
@@ -1118,14 +1064,14 @@ function scanRateClaims(text, opts = {}) {
   const violations = [];
   const push = (token, index, matchedText, suggest) => {
     if (withinAnyRange2(index, opts.disclaimerRanges)) return;
-    const severity = applyFloor2(DEFAULT_SEVERITY, opts.severityFloor);
+    const severity = applyFloor(DEFAULT_SEVERITY, opts.severityFloor);
     violations.push({
       token,
       severity,
       index,
       matchedText,
       suggest,
-      message: buildMessage3(token, matchedText, index, severity, suggest)
+      message: buildMessage2(token, matchedText, index, severity, suggest)
     });
   };
   for (const { index, matchedText } of scanRegZ(text, masked)) {
@@ -1139,6 +1085,74 @@ function scanRateClaims(text, opts = {}) {
 }
 function hasRateClaimViolation(text, opts = {}) {
   return scanRateClaims(text, opts).length > 0;
+}
+
+// src/lanes/scan.ts
+var COMPILED2 = LANE_REGISTRY.map((entry) => ({
+  entry,
+  matcher: compileMatcher(entry),
+  hasOwnRate: entry.allowedContexts.some((c) => c.kind === "own-rate")
+}));
+function isOwnRate(masked, matchIndex, matchLength) {
+  const start = Math.max(0, matchIndex - OWN_RATE_WINDOW);
+  const end = Math.min(masked.length, matchIndex + matchLength + OWN_RATE_WINDOW);
+  const ctx = masked.slice(start, end);
+  return OWN_RATE_CUES.test(ctx) && !OFFER_CUES.test(ctx);
+}
+var SEVERITY_RANK2 = {
+  REVIEW_FLAG: 0,
+  WARNING: 1,
+  HARD_BLOCK: 2
+};
+function applyFloor2(rowSeverity, floor) {
+  if (!floor) return rowSeverity;
+  return SEVERITY_RANK2[floor] > SEVERITY_RANK2[rowSeverity] ? floor : rowSeverity;
+}
+function lanesForRole(role) {
+  switch (role) {
+    case "AGENT":
+      return ["AGENT_LANE_VIOLATION"];
+    case "MLO":
+      return ["MLO_LANE_VIOLATION"];
+    case "DUAL":
+      return [];
+    default:
+      return ["AGENT_LANE_VIOLATION", "MLO_LANE_VIOLATION"];
+  }
+}
+function buildMessage3(entry, matchedText, index, severity) {
+  const laneLabel = entry.lane === "AGENT_LANE_VIOLATION" ? "MLO-only language in an agent's copy" : "agent-only language in an MLO's copy";
+  const base = `\u26A0 ${severity} [lane]: "${matchedText}" is ${laneLabel} ("${entry.token}") at offset ${index}`;
+  return entry.suggest ? `${base} \u2192 ${entry.suggest}` : base;
+}
+function scanLaneViolations(text, role, opts = {}) {
+  if (typeof text !== "string" || text.length === 0) return [];
+  const applicable = new Set(lanesForRole(role));
+  if (applicable.size === 0) return [];
+  const masked = maskHtml(text);
+  const words = indexWords(masked);
+  const violations = [];
+  for (const { entry, matcher, hasOwnRate } of COMPILED2) {
+    if (!applicable.has(entry.lane)) continue;
+    for (const { index, matchedText } of runMatcher(matcher, text, masked, words, opts.disclaimerRanges)) {
+      if (hasOwnRate && isOwnRate(masked, index, matchedText.length)) continue;
+      const severity = applyFloor2(entry.severity, opts.severityFloor);
+      violations.push({
+        token: entry.token,
+        lane: entry.lane,
+        severity,
+        index,
+        matchedText,
+        suggest: entry.suggest,
+        message: buildMessage3(entry, matchedText, index, severity)
+      });
+    }
+  }
+  violations.sort((a, b) => a.index - b.index || a.token.localeCompare(b.token));
+  return violations;
+}
+function hasLaneViolation(text, role, opts = {}) {
+  return scanLaneViolations(text, role, opts).length > 0;
 }
 export {
   CLAUSE_BREAKERS,
