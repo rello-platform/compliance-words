@@ -17,6 +17,18 @@
  * Returns `{ token, message, severity }` per the dispatch contract, plus the
  * match offset / matchedText / lane / suggest for actionable consumers.
  *
+ * OWN-RATE ESCAPE (v0.5.0, Kelly ruling 2026-06-03). The AGENT `rate offer` row
+ * carries an `own-rate` allowed-context: a possessive "your rate is …" match is
+ * EXCUSED when the surrounding window references the lead's OWN existing rate
+ * (`OWN_RATE_CUES`) with no prospective-offer framing (`OFFER_CUES`) — "your
+ * current rate is 2.88%", "your rate is still one of the best", "you're sitting on
+ * a 2.94% rate", "your 6.5% rate alert" no longer false-flag as MLO-lane rate
+ * offers. A real offer STILL flags ("your rate will be 5.5%", "your new rate could
+ * be 5.5%", "I can offer you a rate of …"). This REUSES the exact OWN_RATE_CUES /
+ * OFFER_CUES regexes from `../rate-claims/scan.ts` (single source of truth), so
+ * the lane checker and the rate-claims checker agree on what "the lead's own rate"
+ * means. Only the `rate offer` row is affected; all other lane rows are unchanged.
+ *
  * Pure function over text; no I/O, no throw on bad input.
  */
 
@@ -33,6 +45,11 @@ import {
   runMatcher,
   type CompiledMatcher,
 } from "../match-engine.js";
+import {
+  OWN_RATE_CUES,
+  OFFER_CUES,
+  OWN_RATE_WINDOW,
+} from "../rate-claims/scan.js";
 
 /** The professional on whose behalf the copy is sent. */
 export type Role = "AGENT" | "MLO" | "DUAL";
@@ -64,12 +81,34 @@ export interface LaneViolation {
 interface CompiledLane {
   readonly entry: LaneEntry;
   readonly matcher: CompiledMatcher;
+  /** v0.5.0: does this row carry the `own-rate` allowed-context? The shared match
+   *  engine only knows negation/compound/disclaimer; the lane-only own-rate escape
+   *  is applied here (mirrors the rate-claims scanRegZ lead-owned-rate carve-out
+   *  with the SAME shared cue regexes — single source of truth). */
+  readonly hasOwnRate: boolean;
 }
 
 const COMPILED: readonly CompiledLane[] = LANE_REGISTRY.map((entry) => ({
   entry,
   matcher: compileMatcher(entry),
+  hasOwnRate: entry.allowedContexts.some((c) => c.kind === "own-rate"),
 }));
+
+/**
+ * OWN-RATE escape (v0.5.0, Kelly ruling 2026-06-03). True iff the window around a
+ * `rate offer` match references the LEAD'S OWN existing rate (`OWN_RATE_CUES`) and
+ * carries NO prospective-offer framing (`OFFER_CUES`). Mirrors rate-claims
+ * `scanRegZ` exactly and reuses its shared cue regexes + window, so the lane and
+ * rate-claims scanners agree: "your current rate is 2.88%" / "your rate is still
+ * one of the best" are excused, while "your rate will be 5.5%" / "your new rate
+ * could be 5.5%" / "I can offer you a rate of …" STILL flag.
+ */
+function isOwnRate(masked: string, matchIndex: number, matchLength: number): boolean {
+  const start = Math.max(0, matchIndex - OWN_RATE_WINDOW);
+  const end = Math.min(masked.length, matchIndex + matchLength + OWN_RATE_WINDOW);
+  const ctx = masked.slice(start, end);
+  return OWN_RATE_CUES.test(ctx) && !OFFER_CUES.test(ctx);
+}
 
 /** Ordered severity ranking so `severityFloor` can only raise. */
 const SEVERITY_RANK: Record<LaneSeverity, number> = {
@@ -142,9 +181,14 @@ export function scanLaneViolations(
   const words = indexWords(masked);
   const violations: LaneViolation[] = [];
 
-  for (const { entry, matcher } of COMPILED) {
+  for (const { entry, matcher, hasOwnRate } of COMPILED) {
     if (!applicable.has(entry.lane)) continue;
     for (const { index, matchedText } of runMatcher(matcher, text, masked, words, opts.disclaimerRanges)) {
+      // OWN-RATE escape (v0.5.0): excuse a `rate offer` match that references the
+      // lead's OWN existing rate with no prospective-offer cue. Mirrors the
+      // rate-claims scanRegZ carve-out via the SAME shared regexes so the two
+      // scanners never disagree on what "the lead's own rate" means.
+      if (hasOwnRate && isOwnRate(masked, index, matchedText.length)) continue;
       const severity = applyFloor(entry.severity, opts.severityFloor);
       violations.push({
         token: entry.token,

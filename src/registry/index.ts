@@ -45,8 +45,16 @@ export interface AllowedContext {
    * - `disclaimer-banner`: the token's char offset falls inside a range the CALLER
    *   marked as an illustrative/disclaimer block (`CheckOptions.disclaimerRanges`)
    *   → allowed. Fail-safe-strict: an unmarked banner still HARD_BLOCKs.
+   * - `own-rate`: (lane checker only, v0.5.0) the match sits in a context that
+   *   references the LEAD'S OWN EXISTING rate (`OWN_RATE_CUES` near the match) and
+   *   carries NO prospective-offer framing (`OFFER_CUES` absent) → it is a factual
+   *   statement about the customer's existing rate, not a rate OFFER, so it is
+   *   allowed. Mirrors the rate-claims `scanRegZ` lead-owned-rate escape (Kelly
+   *   ruling 2026-06-03) and REUSES the exact same shared cue regexes, so the two
+   *   scanners agree. The M7 `checkCompliance` matcher does NOT implement this kind
+   *   (no M7 row carries it); only `scanLaneViolations` honors it.
    */
-  readonly kind: "negation" | "compound" | "disclaimer-banner";
+  readonly kind: "negation" | "compound" | "disclaimer-banner" | "own-rate";
   /** Documented, reviewable matcher. For `compound` this is the fixed phrase the
    *  checker searches for; for `negation`/`disclaimer-banner` it is human-readable
    *  documentation of the rule (the mechanism is generic, not pattern-parsed). */

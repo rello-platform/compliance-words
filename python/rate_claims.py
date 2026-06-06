@@ -71,9 +71,15 @@ _APR_PRESENT = re.compile(r"\bapr\b|\ba\.p\.r\.|\bannual percentage rate\b", re.
 # lead's OWN existing rate ("your current rate is 2.88%", "you're sitting on a
 # 2.94% rate", "your 6.5% rate alert") is NOT an advertised offer → outside the
 # Reg-Z trigger-term scope. Mirrors VALUE_CUES; an OFFER cue near the % overrides
-# it (a prospective "your new rate could be 5.5%" STILL flags). Mirror of
-# scan.ts OWN_RATE_CUES / OFFER_CUES verbatim.
-_OWN_RATE_CUES = re.compile(
+# it (a prospective "your new rate could be 5.5%" / "your rate will be 5.5%" STILL
+# flags). Mirror of scan.ts OWN_RATE_CUES / OFFER_CUES verbatim.
+#
+# SHARED SOURCE OF TRUTH (v0.5.0): exposed as module-level PUBLIC names so the
+# Python LANE checker (python/lane_checker.py) imports these EXACT regexes for its
+# AGENT `rate offer` own-rate escape — the two Python scanners must never carry two
+# divergent own-rate definitions, matching the TS single-source discipline
+# (src/lanes/scan.ts imports OWN_RATE_CUES/OFFER_CUES from src/rate-claims/scan.ts).
+OWN_RATE_CUES = re.compile(
     r"\byour\s+(?:current\s+|existing\s+|locked(?:[\s-]?in)?\s+)?rate\b|"
     r"\btheir\s+(?:current\s+|existing\s+)?rate\b|\brate\s+alert\b|"
     r"\byou(?:'re|\s+are)\s+sitting\s+on\b|"
@@ -81,13 +87,24 @@ _OWN_RATE_CUES = re.compile(
     r"\bthe\s+rate\s+you(?:'?ve|'?re|\s+(?:have|had|locked|got|are))\b",
     re.IGNORECASE,
 )
-_OFFER_CUES = re.compile(
+# v0.5.0: added \bwill\s+be\b|\bwould\s+be\b — a FUTURE-TENSE quote is a
+# prospective offer, not the lead's existing rate, so "your rate will be 5.5%" /
+# "your rate would be 5.5%" stay flagged in BOTH scanners (present-tense "your
+# rate is 2.88%" stays allowed). Mirror of scan.ts OFFER_CUES verbatim.
+OFFER_CUES = re.compile(
     r"\bnew\s+rate\b|\bcould\s+(?:be|get|drop|go|lock|save|qualify)\b|"
     r"\byou\s+could\b|\bwe\s+could\b|\brefi(?:nance)?\b|\bget\s+you\b|"
     r"\bqualify\s+for\b|\bdown\s+to\b|\bas\s+low\s+as\b|\block\s+you\s+in\b|"
-    r"\bwe\s+can\s+(?:get|offer|lock)\b",
+    r"\bwe\s+can\s+(?:get|offer|lock)\b|\bwill\s+be\b|\bwould\s+be\b",
     re.IGNORECASE,
 )
+# Window (chars) scanned on each side of a match for own-rate/offer cues — shared
+# with the LANE checker so both Python scanners use the identical proximity.
+OWN_RATE_WINDOW = _WINDOW
+
+# Back-compat private aliases (existing call sites in _scan_regz use these).
+_OWN_RATE_CUES = OWN_RATE_CUES
+_OFFER_CUES = OFFER_CUES
 
 
 def _scan_regz(text, masked):

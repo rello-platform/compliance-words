@@ -129,6 +129,28 @@ class LaneBehavior(unittest.TestCase):
         ]:
             self.assertEqual(scan_lane_violations(t, "AGENT"), [], "expected clean: %r" % t)
 
+    def test_agent_rate_offer_own_rate_escape_allows(self):
+        # OWN-RATE escape (v0.5.0, Kelly ruling): a factual reference to the lead's
+        # OWN existing rate is NOT a cross-lane rate offer — these must NOT flag.
+        for t in [
+            "Justin, your rate is kind of a big deal. Your current rate is sitting at 2.88%.",
+            "Your rate is still one of the best out there. You're sitting on a 2.94% rate.",
+            "Your current rate is 2.88%.",
+            "Saw your 6.5% rate alert come through.",
+            "Their current rate is 3.1% on the existing loan.",
+        ]:
+            self.assertNotIn("rate offer", self._tokens(t, "AGENT"), "expected NO rate-offer flag (own rate): %r" % t)
+
+    def test_agent_rate_offer_real_offers_still_flag(self):
+        # A real prospective rate OFFER must STILL flag even with a possessive
+        # "your" (the shared OFFER_CUES override the own-rate escape).
+        self.assertIn("rate offer", self._tokens("Your rate will be 5.5%.", "AGENT"))
+        self.assertIn("rate offer", self._tokens("Your rate would be 5.5% after closing.", "AGENT"))
+        self.assertIn("rate offer", self._tokens("I can offer you a rate of 5.5%.", "AGENT"))
+        self.assertIn("rate offer", self._tokens("We can offer you a rate of 6.1%.", "AGENT"))
+        # Other lane rows are unaffected by the own-rate escape near an own-rate phrase.
+        self.assertIn("lock your rate", self._tokens("Your current rate is 2.88% — let's lock your rate.", "AGENT"))
+
     def test_mlo_lane_positives(self):
         self.assertEqual(self._tokens("List your home with me!", "MLO"), ["list your home with me"])
         self.assertEqual(self._tokens("I will sell your home fast.", "MLO"), ["i'll sell your home"])
