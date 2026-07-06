@@ -22,11 +22,17 @@ const root = join(here, "..");
 const tokensOf = (text, opts) => checkCompliance(text, opts).map((v) => v.token).sort();
 
 // ── (a) Completeness contract ───────────────────────────────────────────────
+// Gap-3 (v0.6.0) abstract deny-CLASS labels: the token is a class name, not a
+// lemma that surfaces verbatim in its collocation forms (unlike `offer` ∈
+// "special offer" or `zero-cost` ∈ "zero-cost mortgage"). Exempt from the
+// lemma-in-form sanity check below.
+const ABSTRACT_CLASS_TOKENS = new Set(["rate-freeze", "gov-affiliation", "manufactured-urgency"]);
+
 describe("registry — completeness", () => {
-  it("holds the reconciled 10 prohibited tokens + the AI identity rule = 11 rows", () => {
-    assert.equal(COMPLIANCE_REGISTRY.length, 11);
-    assert.equal(COMPLIANCE_TOKEN_SET.size, 11);
-    assert.equal(listComplianceEntries().length, 11);
+  it("holds the reconciled 13 prohibited tokens + the AI identity rule = 14 rows", () => {
+    assert.equal(COMPLIANCE_REGISTRY.length, 14);
+    assert.equal(COMPLIANCE_TOKEN_SET.size, 14);
+    assert.equal(listComplianceEntries().length, 14);
   });
 
   it("carries exactly the spec's reconciled tokens", () => {
@@ -35,13 +41,16 @@ describe("registry — completeness", () => {
       "approval",
       "final",
       "free money",
+      "gov-affiliation",
       "guarantee",
       "lock",
+      "manufactured-urgency",
       "offer",
       "pre-qualified",
-      "quote",
+      "rate-freeze",
       "risk-free",
       "won't lose your home",
+      "zero-cost",
     ];
     assert.deepEqual([...COMPLIANCE_TOKEN_SET].sort(), expected);
   });
@@ -54,11 +63,15 @@ describe("registry — completeness", () => {
       // The canonical token must appear (as a word) in at least one form. For
       // word-stem/word the token IS a form; for phrase entries the token is the
       // lemma and appears inside a collocation form (e.g. `offer` ∈ "special
-      // offer" after Gap 2 narrowed `offer` to its prohibited collocations).
-      assert.ok(
-        e.forms.some((f) => f === e.token || f.split(/[^a-z0-9]+/i).includes(e.token)),
-        `${e.token}: token must appear as a word in at least one form`,
-      );
+      // offer", `pre-qualified` ∈ "you're pre-qualified", `zero-cost` ∈
+      // "zero-cost mortgage"). Split on whitespace so a hyphenated compound token
+      // stays intact. Gap-3 abstract deny-class labels are exempt (see above).
+      if (!ABSTRACT_CLASS_TOKENS.has(e.token)) {
+        assert.ok(
+          e.forms.some((f) => f === e.token || f.split(/\s+/).includes(e.token)),
+          `${e.token}: token must appear as a word in at least one form`,
+        );
+      }
       assert.ok(["HARD_BLOCK", "REVIEW_FLAG"].includes(e.category), `${e.token}: category`);
       assert.ok(Array.isArray(e.allowedContexts), `${e.token}: allowedContexts`);
       for (const c of e.allowedContexts) {
@@ -128,9 +141,12 @@ describe("live-evidence corpus — zero false-positives on legit copy", () => {
 
 // ── (c) Affirmative-claim corpus — MUST HARD_BLOCK ──────────────────────────
 describe("affirmative-claim corpus — real violations are caught", () => {
-  it("'We guarantee approval' → HARD_BLOCK guarantee + approval", () => {
-    assert.deepEqual(tokensOf("We guarantee approval for every applicant."), ["approval", "guarantee"]);
-    assert.equal(hasHardBlock("We guarantee approval for every applicant."), true);
+  it("'Guaranteed approval' → HARD_BLOCK guarantee + approval", () => {
+    // v0.6.0: `approval` is a phrase — the affirmative collocation "guaranteed
+    // approval" fires both tokens (the bare "guarantee approval" noun no longer
+    // trips `approval`).
+    assert.deepEqual(tokensOf("Guaranteed approval for every applicant."), ["approval", "guarantee"]);
+    assert.equal(hasHardBlock("Guaranteed approval for every applicant."), true);
   });
 
   it("'free money' → HARD_BLOCK", () => {
@@ -145,10 +161,13 @@ describe("affirmative-claim corpus — real violations are caught", () => {
     assert.deepEqual(tokensOf("This is a risk-free investment."), ["risk-free"]);
   });
 
-  it("affirmative lock/quote/offer → three HARD_BLOCKs", () => {
+  it("affirmative lock + offer collocations → two HARD_BLOCKs (quote removed v0.6.0)", () => {
+    // v0.6.0: `lock` is now a phrase ("lock your rate" matches), `offer` matches
+    // "best offer", and the bare `quote` token was removed (EDIT 3) so "quote you"
+    // no longer fires.
     assert.deepEqual(
       tokensOf("Lock your rate now and we'll quote you the best offer."),
-      ["lock", "offer", "quote"],
+      ["lock", "offer"],
     );
   });
 
@@ -159,7 +178,7 @@ describe("affirmative-claim corpus — real violations are caught", () => {
   });
 
   it("sentence isolation: a negation in the PRIOR sentence does not excuse the claim", () => {
-    assert.deepEqual(tokensOf("This is not allowed. We guarantee approval."), ["approval", "guarantee"]);
+    assert.deepEqual(tokensOf("This is not allowed. Guaranteed approval."), ["approval", "guarantee"]);
   });
 });
 
@@ -202,7 +221,10 @@ describe("word boundaries — NOT substring", () => {
 // ── (f) HTML content (NS pre-send) ──────────────────────────────────────────
 describe("HTML tokenization", () => {
   it("catches a token wrapped in tags", () => {
-    assert.deepEqual(tokensOf("<b>guarantee</b> <i>approval</i>"), ["approval", "guarantee"]);
+    // v0.6.0: `approval` is a phrase, so the affirmative collocation "guaranteed
+    // approval" is exercised across the masked tags (the phrase matcher spans the
+    // equal-length space mask a tag leaves behind).
+    assert.deepEqual(tokensOf("<b>guaranteed</b> <i>approval</i>"), ["approval", "guarantee"]);
   });
 
   it("ignores a token inside a tag/attribute (URL in href)", () => {
@@ -212,13 +234,14 @@ describe("HTML tokenization", () => {
 
 // ── (g) Disclaimer-banner — fail-safe-strict ────────────────────────────────
 describe("disclaimer-banner ranges (fail-safe-strict)", () => {
-  // "an example quote" + a bare "offer" (no promotional collocation): post-Gap-2
-  // the bare `offer` no longer matches, so the unmarked block flags only `quote`.
-  const banner = "Illustrative scenario: an example quote shown for comparison.";
+  // v0.6.0: the bare `quote` token was removed, so the banner now carries an
+  // affirmative approval claim ("you're approved") — a HARD_BLOCK that also
+  // carries a disclaimer-banner allowance, exactly what this test exercises.
+  const banner = "Illustrative scenario: you're approved shown for comparison.";
 
   it("an UNMARKED illustrative block HARD_BLOCKs (fail-safe-strict)", () => {
     assert.equal(hasHardBlock(banner), true);
-    assert.deepEqual(tokensOf(banner), ["quote"]);
+    assert.deepEqual(tokensOf(banner), ["approval"]);
   });
 
   it("the SAME block marked as a disclaimer range passes", () => {
@@ -381,8 +404,10 @@ describe("Gap 3 — single negation cue distributes over a coordinated NOT-THAT 
       ["guarantee"],
     );
     // A far cue with NO comma/or coordinator does not distribute either.
+    // v0.6.0: `approval` is a phrase, so the claim collocation "you are approved"
+    // exercises it (the bare "approval" noun no longer matches).
     assert.deepEqual(
-      tokensOf("Not one two three four five six seven eight guarantee approval."),
+      tokensOf("Not one two three four five six seven eight guarantee you are approved."),
       ["approval", "guarantee"],
     );
   });
@@ -410,18 +435,22 @@ describe("Ruling 1 — pre-qualification product-name noun cleared; the claim ad
     });
   }
 
-  it("the advertising CLAIM (the -ed adjective applied to the borrower) STILL HARD_BLOCKs", () => {
-    // Kelly's two explicit must-stay-blocked examples + siblings.
+  it("the affirmative 2nd-person CLAIM STILL HARD_BLOCKs (v0.6.0 phrase collocations)", () => {
+    // v0.6.0: `pre-qualified` is now a phrase matching only the affirmative
+    // 2nd-person claim. "You're/You are/You've been pre-qualified" still block;
+    // the procedural CTA "get pre-qualified" is now a documented PASS (see the
+    // acceptance-matrix suite).
     assert.deepEqual(tokensOf("You're pre-qualified today — apply now!"), ["pre-qualified"]);
     assert.deepEqual(tokensOf("You are pre-qualified, lock your rate."), ["lock", "pre-qualified"]);
-    assert.deepEqual(tokensOf("Get pre-qualified now."), ["pre-qualified"]);
+    assert.deepEqual(tokensOf("You've been pre-qualified — apply now."), ["pre-qualified"]);
     assert.equal(hasHardBlock("You're pre-qualified!"), true);
   });
 
-  it("the 3rd-person status adjective is the documented residual — still in scope", () => {
-    // "<borrower> is pre-qualified" uses the -ed adjective and stays blocked so
-    // the 2nd-person claim cannot slip (registry comment + DKA report).
-    assert.deepEqual(tokensOf("John Smith is pre-qualified for these programs."), ["pre-qualified"]);
+  it("the 3rd-person status sentence now PASSES (v0.6.0 inversion resolved the old residual)", () => {
+    // Pre-v0.6.0 the word-stem left "<borrower> is pre-qualified" in scope as a
+    // documented residual. The allow-by-default inversion narrows to the explicit
+    // 2nd-person collocations, so a 3rd-person status sentence is now clean.
+    assert.deepEqual(tokensOf("John Smith is pre-qualified for these programs."), []);
   });
 });
 
@@ -441,9 +470,101 @@ describe("Ruling 2 — institutional approval-gate disclaimers cleared; promo cl
   }
 
   it("the genuine promotional approval claim STILL HARD_BLOCKs (no over-loosening)", () => {
-    assert.deepEqual(tokensOf("Get loan approval today."), ["approval"]);
+    // v0.6.0: the affirmative collocations still block ("get approved", "approved
+    // today", "you're approved", "guaranteed approval") while the institutional
+    // gate above passes.
+    assert.deepEqual(tokensOf("Get approved today."), ["approval"]);
     assert.deepEqual(tokensOf("You're approved — congratulations!"), ["approval"]);
-    assert.deepEqual(tokensOf("We guarantee approval for every applicant."), ["approval", "guarantee"]);
+    assert.deepEqual(tokensOf("Guaranteed approval for every applicant."), ["approval", "guarantee"]);
+  });
+});
+
+// ── (v0.6.0) Gap-3 allow-by-default inversion — full acceptance matrix ───────
+// The Kelly-approved contract for v0.6.0. Every PASS row must be clean; every
+// BLOCK row must fire its expected token(s) as a HARD_BLOCK. Relaxed over-broad
+// word-stems (approval/lock/pre-qualified → affirmative-claim phrases), removed
+// the bare `quote` token, added four new deny classes.
+describe("Gap-3 allow-by-default inversion", () => {
+  const tokensOfM = (t) => checkCompliance(t).map((v) => v.token).sort();
+
+  // MUST PASS — conditional/procedural/product-name language now passes clean.
+  const pass = [
+    "get pre-approved",
+    "start the approval process",
+    "once approved by underwriting",
+    "pending approval",
+    "approval is not guaranteed",
+    "the pre-approval step",
+    "get pre-qualified",
+    "the pre-qualification summary",
+    "rate lock",
+    "the rate lock process",
+    "lock period",
+    "once we lock",
+    "when you're ready to lock",
+    "I can get you a quote",
+    "request a quote",
+    "a lot to offer",
+    "low-cost options",
+    "an estimate of costs",
+    "no lender fees",
+    "FHA loan",
+    "government-backed loan",
+    "USDA guarantee fee",
+    "Final Disclosure",
+  ];
+  for (const text of pass) {
+    it(`PASS (clean): ${text}`, () => {
+      assert.deepEqual(
+        checkCompliance(text),
+        [],
+        `unexpected: ${JSON.stringify(checkCompliance(text))}`,
+      );
+    });
+  }
+
+  // MUST BLOCK — the affirmative claim fires its expected token(s). Inclusion
+  // (not exact-equal) because some rows legitimately fire a second token too
+  // ("final notice" also trips the `final` REVIEW_FLAG; "guaranteed approval"
+  // trips both `guarantee` and `approval`).
+  const block = [
+    ["you're approved", ["approval"]],
+    ["you've been approved", ["approval"]],
+    ["get approved", ["approval"]],
+    ["instant approval", ["approval"]],
+    ["approved today", ["approval"]],
+    ["you're pre-approved", ["approval"]],
+    ["you've been pre-approved", ["approval"]],
+    ["you're pre-qualified", ["pre-qualified"]],
+    ["lock your rate", ["lock"]],
+    ["lock in your rate", ["lock"]],
+    ["freeze your rate", ["rate-freeze"]],
+    ["rate freeze", ["rate-freeze"]],
+    ["hold your rate", ["rate-freeze"]],
+    ["special offer", ["offer"]],
+    ["guaranteed approval", ["approval", "guarantee"]],
+    ["guaranteed quote", ["guarantee"]],
+    ["no-cost loan", ["zero-cost"]],
+    ["no closing costs", ["zero-cost"]],
+    ["free refinance", ["zero-cost"]],
+    ["official housing notice", ["gov-affiliation"]],
+    ["stimulus relief mortgage", ["gov-affiliation"]],
+    ["final notice", ["manufactured-urgency"]],
+    ["your window closes today", ["manufactured-urgency"]],
+  ];
+  for (const [text, expected] of block) {
+    it(`BLOCK: ${text} → ${expected.join("+")}`, () => {
+      const toks = tokensOfM(text);
+      for (const tok of expected) {
+        assert.ok(toks.includes(tok), `${text}: expected '${tok}', got ${JSON.stringify(toks)}`);
+      }
+      assert.equal(hasHardBlock(text), true, `${text}: expected a HARD_BLOCK`);
+    });
+  }
+
+  it("the removed `quote` token no longer exists; its only deceptive form is caught by `guarantee`", () => {
+    assert.equal(COMPLIANCE_TOKEN_SET.has("quote"), false);
+    assert.deepEqual(tokensOfM("guaranteed quote"), ["guarantee"]);
   });
 });
 
@@ -453,10 +574,10 @@ describe("dist/compliance-words-keyset.json", () => {
     readFileSync(join(root, "dist", "compliance-words-keyset.json"), "utf8"),
   );
 
-  it("names the package + version and carries all 11 entries", () => {
+  it("names the package + version and carries all 14 entries", () => {
     assert.equal(keyset.package, "@rello-platform/compliance-words");
-    assert.equal(keyset.version, "0.5.0");
-    assert.equal(keyset.entries.length, 11);
+    assert.equal(keyset.version, "0.6.0");
+    assert.equal(keyset.entries.length, 14);
   });
 
   it("carries the full matcher config the Python consumer needs (incl. v0.1.1 list-negation params)", () => {
