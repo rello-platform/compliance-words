@@ -155,108 +155,72 @@ var COMPLIANCE_REGISTRY = [
     provenance: ["S1", "S3", "RE"]
   },
   {
+    // Gap-3 allow-by-default inversion (v0.6.0, Kelly 2026-07-06): the bare
+    // `approval` word-stem HARD_BLOCKed ordinary conditional/procedural approval
+    // language ("get pre-approved", "subject to underwriting approval", "once
+    // approved by underwriting", "pending approval") — the exact institutional
+    // GATE copy compliance WANTS. Inverted to allow-by-default: `approval` is now
+    // a PHRASE that matches ONLY the affirmative-claim collocations. The
+    // you're/you've-been pre-approved family is REQUIRED-blocked because a
+    // definitive pre-approval statement to a consumer is an FCRA firm offer of
+    // credit.
     token: "approval",
-    matchType: "word-stem",
-    forms: ["approval", "approvals", "approved", "approve", "approves", "approving"],
-    category: "HARD_BLOCK",
-    allowedContexts: [
-      {
-        kind: "compound",
-        pattern: "hud-approved",
-        note: "Named federal designation: a 'HUD-approved counselor' / 'HUD-approved housing counselor' / 'HUD-approved condominium' / 'HUD-approved counseling' is a real HUD status, NOT an advertising approval claim. The mandatory HECM HUD-counseling line carries it on every compliant message (live Rello HecmContent comp-hud-counseling-mandatory, obj-reverse-scams, hecm-v1 property-type rows; Milo HUD-counseling line; RE pfp_hecm_scenario_comparison:92,417). Closes DISCOVERED-MILO-COMPLIANCE-WORDS-HUD-APPROVED-COMPOUND-MISSING-260531."
-      },
-      {
-        kind: "compound",
-        pattern: "fha-approved",
-        note: "Named federal designation: 'FHA-approved' / 'FHA/HUD-approved' condo/lender status, not an advertising claim (live Rello hecm-v1-card-property-type-eligibility:402, hecm-v1-fcn-property-type:309)."
-      },
-      {
-        kind: "compound",
-        pattern: "hud's approved list",
-        note: "Reference to HUD's published list of approved condominium projects \u2014 a domain artifact, not a borrower approval claim (live Rello hecm-v1-card-property-type-eligibility:523, hecm-v1-fcn-property-type:424)."
-      },
-      {
-        kind: "compound",
-        pattern: "single-unit approval",
-        note: "FHA Single-Unit Approval (SUA) \u2014 a named condominium-eligibility process, not a borrower approval claim (live Rello hecm-v1-card-property-type-eligibility:561)."
-      },
-      {
-        kind: "compound",
-        pattern: "condo approval",
-        note: "FHA/HUD condominium-project approval process (the 'condo-approval field'), a named eligibility step, not a borrower approval claim (live Rello hecm-v1-fcn-property-type:474)."
-      },
-      // Ruling 2 (v0.1.2, Kelly 2026-06-01): compliance-REQUIRED disclaimer
-      // collocations that name the INSTITUTIONAL approval GATE are PROTECTIVE
-      // language, not an advertising claim. "subject to underwriting approval",
-      // "subject to credit approval", "lender approval required", "approval is not
-      // guaranteed" warn the borrower that approval is conditional — the opposite
-      // of an inducement. Registered NARROWLY as institutional-gate nouns so the
-      // genuine promotional claim STILL HARD_BLOCKs: "loan approval" ("Get loan
-      // approval today"), bare "approved" ("you're approved!") and "guarantee
-      // approval" carry no institutional-gate compound and remain blocked. Clears
-      // live Report-Engine disclaimer copy (pfp_prequal_summary "…underwriting
-      // approval are required"; nonqm_scenarios_compare "subject to underwriting
-      // approval"). Closes Kelly-HALTED judgment #2.
-      {
-        kind: "compound",
-        pattern: "underwriting approval",
-        note: "Ruling 2 (Kelly 2026-06-01): the institutional underwriting gate ('subject to underwriting approval', '\u2026underwriting approval are required') is a required protective disclaimer, not an advertising claim. Narrow institutional-gate noun \u2014 'loan approval'/'approved'/'guarantee approval' still HARD_BLOCK."
-      },
-      {
-        kind: "compound",
-        pattern: "credit approval",
-        note: "Ruling 2 (Kelly 2026-06-01): 'subject to credit approval' is a required protective disclaimer naming the institutional credit gate, not an advertising claim."
-      },
-      {
-        kind: "compound",
-        pattern: "lender approval",
-        note: "Ruling 2 (Kelly 2026-06-01): 'lender approval required' / 'subject to lender approval' is a required protective disclaimer naming the institutional lender gate, not an advertising claim."
-      },
-      {
-        kind: "compound",
-        pattern: "approval is not guaranteed",
-        note: "Ruling 2 (Kelly 2026-06-01): 'approval is not guaranteed' is a protective disclaimer \u2014 the 'not'/'guaranteed' sit AFTER 'approval' so the generic negation rule cannot reach it; the fixed disclaimer phrase is registered explicitly."
-      },
-      NEGATION,
-      DISCLAIMER
+    matchType: "phrase",
+    forms: [
+      "you're approved",
+      "you are approved",
+      "you've been approved",
+      "you have been approved",
+      "get approved",
+      "get you approved",
+      "i'll get you approved",
+      "instant approval",
+      "guaranteed approval",
+      "immediate approval",
+      "fast approval",
+      "approved today",
+      "approved now",
+      "approved in minutes",
+      "you're pre-approved",
+      "you are pre-approved",
+      "you've been pre-approved",
+      "you have been pre-approved"
     ],
-    suggest: "review / pre-eligibility (if accurate)",
-    provenance: ["S1", "S2", "S3", "RE"]
-  },
-  {
-    token: "lock",
-    matchType: "word-stem",
-    forms: ["lock", "locked", "locks", "locking"],
-    category: "HARD_BLOCK",
-    allowedContexts: [
-      {
-        kind: "compound",
-        pattern: "rate-lock confirmation",
-        note: "Named post-event transactional step (CLOSING_RELEVANT_TYPES `rate_lock_confirmation`); legitimate after a real lock."
-      },
-      {
-        kind: "compound",
-        pattern: "rate lock",
-        note: "'rate lock' as a named product step in transactional/closing copy (post-event), not an affirmative pre-event claim."
-      },
-      {
-        kind: "compound",
-        pattern: "lock days",
-        note: "The rate-lock-period column label 'Lock days' in scenario-comparison copy \u2014 a transactional field, not an affirmative lock claim (live Report-Engine pfp_scenario_comparison:359)."
-      },
-      NEGATION
-    ],
-    suggest: "secure your rate (after a real lock)",
-    provenance: ["S1", "S3", "RE"]
-  },
-  {
-    token: "quote",
-    matchType: "word-stem",
-    forms: ["quote", "quoted", "quotes", "quoting"],
     category: "HARD_BLOCK",
     allowedContexts: [NEGATION, DISCLAIMER],
-    suggest: "estimate / illustration",
-    provenance: ["S1", "S2", "S3", "RE"]
+    suggest: "review / pre-eligibility (if accurate)",
+    provenance: [
+      "S1",
+      "S2",
+      "S3",
+      "RE",
+      "Gap-3 allow-by-default inversion 2026-07-06; affirmative-claim collocations only; conditional/procedural approval language (get pre-approved, subject to underwriting approval, once approved by underwriting, pending approval) now passes; you're/you've-been pre-approved kept blocked = FCRA firm-offer."
+    ]
+  },
+  {
+    // Gap-3 allow-by-default inversion (v0.6.0): the bare `lock` word-stem
+    // false-blocked every named post-event product step ("rate lock", "lock
+    // period", "once we lock"). Inverted to a PHRASE matching only the
+    // affirmative pre-event rate-lock CTA.
+    token: "lock",
+    matchType: "phrase",
+    forms: [
+      "lock your rate",
+      "lock in your rate",
+      "lock your rate today",
+      "lock in today",
+      "rates locked in for you",
+      "lock in your savings"
+    ],
+    category: "HARD_BLOCK",
+    allowedContexts: [NEGATION],
+    suggest: "secure your rate (after a real lock)",
+    provenance: [
+      "S1",
+      "S3",
+      "RE",
+      "Gap-3 inversion; affirmative pre-event rate-lock CTA only; rate lock / lock period / once we lock now pass."
+    ]
   },
   {
     // Gap 2 (v0.1.1): the bare `offer` stem false-blocked ordinary English —
@@ -295,57 +259,27 @@ var COMPLIANCE_REGISTRY = [
     provenance: ["S1", "S3", "RE"]
   },
   {
+    // Gap-3 allow-by-default inversion (v0.6.0): narrowed from a word-stem to a
+    // PHRASE matching only the affirmative claim ("you're pre-qualified"). The
+    // procedural CTA "get pre-qualified" and the product-name noun ("the
+    // pre-qualification summary") now pass without needing compound allowances.
     token: "pre-qualified",
-    matchType: "word-stem",
+    matchType: "phrase",
     forms: [
-      "pre-qualified",
-      "pre-qualify",
-      "pre-qualifies",
-      "pre-qualifying",
-      "pre-qualification",
-      "prequalified",
-      "prequalify",
-      "prequalification"
+      "you're pre-qualified",
+      "you are pre-qualified",
+      "you've been pre-qualified",
+      "you have been pre-qualified",
+      "instant pre-qualification",
+      "guaranteed pre-qualification"
     ],
     category: "HARD_BLOCK",
-    // Gap 3 (v0.1.1): added DISCLAIMER so a caller-marked illustrative/disclaimer
-    // block naming 'pre-qualification' inside a NOT-THAT line passes, matching the
-    // posture of approval/quote (P3 finding).
-    //
-    // Ruling 1 (v0.1.2, Kelly 2026-06-01): "pre-qualified" as a PRODUCT NAME is
-    // identity, not an advertising claim. The split is grammatical and reliable:
-    // the -ION NOUN "pre-qualification" / "prequalification" NAMES the product /
-    // feature / document (the PathfinderPro "Pre-Qualification Summary", its
-    // section/status labels, "this pre-qualification is based on…", "ask for an
-    // official pre-qualification") — it is never the prohibited inducement. The
-    // prohibited advertising claim is always the -ED ADJECTIVE/VERB applied to the
-    // borrower ("you're pre-qualified!", "you are pre-qualified, lock your rate",
-    // "get pre-qualified now") — those forms ("pre-qualified", "pre-qualify",
-    // "pre-qualifies", "pre-qualifying", "prequalified", …) carry NO identity
-    // compound and remain HARD_BLOCK. So the noun is registered as a product-name
-    // identity compound (NOT removed from the token — per the ruling's mechanism)
-    // while every adjective/verb form still blocks. Closes Kelly-HALTED judgment
-    // #1. Residual (documented, surfaced to DKA): the 3rd-person status sentence
-    // "<borrower> is pre-qualified" uses the -ED adjective and stays in scope —
-    // deliberately, so the 2nd-person claim "you're pre-qualified" cannot slip;
-    // the summary could title-case it to a "Pre-Qualified" badge if Kelly wants it
-    // cleared too.
-    allowedContexts: [
-      {
-        kind: "compound",
-        pattern: "pre-qualification",
-        note: "Ruling 1 (Kelly 2026-06-01): the -ION NOUN naming the product/feature/document ('Pre-Qualification Summary' title, the status labels, 'this pre-qualification is based on\u2026', 'an official pre-qualification') is identity, not an advertising claim. The -ED adjective claim form ('you're pre-qualified') carries no compound and still HARD_BLOCKs."
-      },
-      {
-        kind: "compound",
-        pattern: "prequalification",
-        note: "Ruling 1 (Kelly 2026-06-01): the unhyphenated spelling of the product-name noun \u2014 same identity allowance as 'pre-qualification'."
-      },
-      NEGATION,
-      DISCLAIMER
-    ],
+    allowedContexts: [NEGATION, DISCLAIMER],
     suggest: "explore your options",
-    provenance: ["S2"]
+    provenance: [
+      "S2",
+      "Gap-3 inversion; affirmative claim only; get pre-qualified / the pre-qualification summary now pass."
+    ]
   },
   {
     token: "risk-free",
@@ -411,6 +345,80 @@ var COMPLIANCE_REGISTRY = [
     ],
     suggest: "Smart Assistant",
     provenance: ["CLAUDE.md", "S1", "S2", "RE"]
+  },
+  {
+    // Gap-3 new deny class (v0.6.0). Reg-Z: the same rate-stability promise as a
+    // rate lock, made via a synonym ("freeze"/"hold") before any real lock event.
+    token: "rate-freeze",
+    matchType: "phrase",
+    forms: [
+      "freeze your rate",
+      "rate freeze",
+      "hold your rate",
+      "rate hold",
+      "freeze your savings",
+      "freeze your payment"
+    ],
+    category: "HARD_BLOCK",
+    allowedContexts: [NEGATION, DISCLAIMER],
+    suggest: "secure your rate (after a real lock)",
+    provenance: ["Gap-3 2026-07-06 new deny class; Reg-Z rate-stability promise via a lock synonym (freeze/hold)."]
+  },
+  {
+    // Gap-3 new deny class (v0.6.0). Reg N / MAP Rule: an unqualified free/no-cost
+    // claim. "no lender fees" is intentionally NOT a form (Kelly-approved as a
+    // factual statement).
+    token: "zero-cost",
+    matchType: "phrase",
+    forms: [
+      "no-cost loan",
+      "zero-cost mortgage",
+      "free refinance",
+      "no closing costs",
+      "completely free",
+      "no cost to you",
+      "absolutely free"
+    ],
+    category: "HARD_BLOCK",
+    allowedContexts: [NEGATION, DISCLAIMER],
+    suggest: "low-cost / an estimate of costs",
+    provenance: ["Gap-3 2026-07-06 new deny class; Reg N / MAP Rule unqualified free/no-cost claim ('no lender fees' excluded as factual)."]
+  },
+  {
+    // Gap-3 new deny class (v0.6.0). MAP Rule: implying government origin or
+    // endorsement of a private mortgage product.
+    token: "gov-affiliation",
+    matchType: "phrase",
+    forms: [
+      "official housing notice",
+      "official government notice",
+      "stimulus relief mortgage",
+      "government approved program",
+      "federal mortgage relief",
+      "national rate directive"
+    ],
+    category: "HARD_BLOCK",
+    allowedContexts: [NEGATION, DISCLAIMER],
+    suggest: "name the specific program (FHA/VA/USDA) plainly",
+    provenance: ["Gap-3 2026-07-06 new deny class; MAP Rule implying government origin/endorsement."]
+  },
+  {
+    // Gap-3 new deny class (v0.6.0). UDAAP: fabricated urgency / false-deadline
+    // pressure copy.
+    token: "manufactured-urgency",
+    matchType: "phrase",
+    forms: [
+      "final notice",
+      "notice of eligibility",
+      "enrollment deadline",
+      "your window closes today",
+      "expires at midnight",
+      "act now before"
+    ],
+    category: "HARD_BLOCK",
+    allowedContexts: [NEGATION, DISCLAIMER],
+    suggest: "state a real product expiration plainly, or drop the deadline",
+    provenance: ["Gap-3 2026-07-06 new deny class; UDAAP fabricated-urgency / false-deadline pressure."]
   }
 ];
 var COMPLIANCE_TOKEN_SET = new Set(

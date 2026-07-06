@@ -121,8 +121,11 @@ declare const CLAUSE_BREAKERS: readonly string[];
  */
 declare const LIST_COORDINATORS: readonly string[];
 /**
- * The canonical M7 vocabulary. 10 prohibited tokens/phrases + the `AI` identity
- * rule = 11 rows, verbatim from the spec's reconciled seed table.
+ * The canonical M7 vocabulary. 13 prohibited tokens/phrases + the `AI` identity
+ * rule = 14 rows. Gap-3 (v0.6.0) inverted approval/lock/pre-qualified to
+ * allow-by-default phrase collocations, removed the bare `quote` token, and added
+ * four new deny classes (rate-freeze, zero-cost, gov-affiliation,
+ * manufactured-urgency).
  */
 declare const COMPLIANCE_REGISTRY: readonly ComplianceEntry[];
 /**
