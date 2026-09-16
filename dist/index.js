@@ -441,31 +441,31 @@ function maskHtml(text) {
   return text.replace(/<[^>]*>/g, (m) => " ".repeat(m.length));
 }
 function indexWords(masked) {
-  const words = [];
+  const words2 = [];
   const re = /[A-Za-z0-9'‘’]+/g;
   let m;
   while ((m = re.exec(masked)) !== null) {
-    words.push({ text: m[0], start: m.index, end: m.index + m[0].length });
+    words2.push({ text: m[0], start: m.index, end: m.index + m[0].length });
   }
-  return words;
+  return words2;
 }
-function wordIndexForMatch(words, offset) {
-  for (let i = 0; i < words.length; i++) {
-    if (offset < words[i].end) return i;
+function wordIndexForMatch(words2, offset) {
+  for (let i = 0; i < words2.length; i++) {
+    if (offset < words2[i].end) return i;
   }
-  return words.length;
+  return words2.length;
 }
-function isNegated(masked, words, matchOffset, proximity, listProximity) {
-  const w = wordIndexForMatch(words, matchOffset);
+function isNegated(masked, words2, matchOffset, proximity, listProximity) {
+  const w = wordIndexForMatch(words2, matchOffset);
   let sawCoordinator = false;
   const floor = Math.max(0, w - listProximity);
   for (let j = w - 1; j >= floor; j--) {
-    const next = words[j + 1];
+    const next = words2[j + 1];
     const rightEdge = next ? next.start : matchOffset;
-    const gap = masked.slice(words[j].end, rightEdge);
+    const gap = masked.slice(words2[j].end, rightEdge);
     if (SENTENCE_TERMINATOR.test(gap)) break;
     if (gap.includes(",")) sawCoordinator = true;
-    const cue = normalizeApostrophe(words[j].text.toLowerCase()).replace(/^'+|'+$/g, "");
+    const cue = normalizeApostrophe(words2[j].text.toLowerCase()).replace(/^'+|'+$/g, "");
     if (CLAUSE_BREAKER_SET.has(cue)) break;
     if (NEGATION_SET.has(cue)) {
       const dist = w - j;
@@ -484,7 +484,7 @@ function withinAnyRange(offset, ranges) {
 function withinAnyCompound(offset, spans) {
   return spans.some(([start, end]) => offset >= start && offset < end);
 }
-function runMatcher(compiled, text, masked, words, disclaimerRanges) {
+function runMatcher(compiled, text, masked, words2, disclaimerRanges) {
   const out = [];
   const compoundSpans = [];
   for (const cre of compiled.compoundRegexes) {
@@ -503,7 +503,7 @@ function runMatcher(compiled, text, masked, words, disclaimerRanges) {
     if (compiled.tokenRegex.lastIndex === index) compiled.tokenRegex.lastIndex++;
     if (withinAnyCompound(index, compoundSpans)) continue;
     if (compiled.hasDisclaimer && withinAnyRange(index, disclaimerRanges)) continue;
-    if (compiled.hasNegation && isNegated(masked, words, index, compiled.negationProximity, compiled.listNegationProximity)) {
+    if (compiled.hasNegation && isNegated(masked, words2, index, compiled.negationProximity, compiled.listNegationProximity)) {
       continue;
     }
     out.push({ index, matchedText });
@@ -523,10 +523,10 @@ function buildMessage(entry, matchedText, index) {
 function checkCompliance(text, opts = {}) {
   if (typeof text !== "string" || text.length === 0) return [];
   const masked = maskHtml(text);
-  const words = indexWords(masked);
+  const words2 = indexWords(masked);
   const violations = [];
   for (const { entry, matcher } of COMPILED) {
-    for (const { index, matchedText } of runMatcher(matcher, text, masked, words, opts.disclaimerRanges)) {
+    for (const { index, matchedText } of runMatcher(matcher, text, masked, words2, opts.disclaimerRanges)) {
       violations.push({
         token: entry.token,
         category: entry.category,
@@ -993,12 +993,52 @@ function withinAnyRange2(offset, ranges) {
 }
 var PERCENT_TOKEN = /\b\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent\b)/gi;
 var WINDOW = 40;
-var RATE_CUES = /\brate\b|\brates\b|\bmortgage\b|\bapr\b|\bloan\b|\b30[\s-]?(?:year|yr)\b|\b15[\s-]?(?:year|yr)\b|thirty[\s-]?year|fifteen[\s-]?year|\bfixed\b|\barm\b|\bapy\b|\binterest\b|\bpoints?\b|\bbps\b|basis points?|offering|offered|locked? in|lock(?:ed)? at/i;
-var VALUE_CUES = /\bup\b|from last year|year[\s-]?over[\s-]?year|\byoy\b|\bprices?\b|home values?|\bvalues?\b|\bworth\b|appreciat|\bgained\b|\bgaining\b|\brose\b|\brisen\b|\brising\b|climbed|\bequity\b|\bappreciation\b/i;
 var APR_PRESENT = /\bapr\b|\ba\.p\.r\.|\bannual percentage rate\b/i;
 var OWN_RATE_CUES = /\byour\s+(?:current\s+|existing\s+|locked(?:[\s-]?in)?\s+)?rate\b|\btheir\s+(?:current\s+|existing\s+)?rate\b|\brate\s+alert\b|\byou(?:'re|\s+are)\s+sitting\s+on\b|\byour\s+\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent)\s+rate\b|\bthe\s+rate\s+you(?:'?ve|'?re|\s+(?:have|had|locked|got|are))\b/i;
 var OFFER_CUES = /\bnew\s+rate\b|\bcould\s+(?:be|get|drop|go|lock|save|qualify)\b|\byou\s+could\b|\bwe\s+could\b|\brefi(?:nance)?\b|\bget\s+you\b|\bqualify\s+for\b|\bdown\s+to\b|\bas\s+low\s+as\b|\block\s+you\s+in\b|\bwe\s+can\s+(?:get|offer|lock)\b|\bwill\s+be\b|\bwould\s+be\b/i;
 var OWN_RATE_WINDOW = WINDOW;
+var CLAUSE_BOUNDARY_RE = /[.!?;:,\n]/;
+var RATE_NOUN_RE = /^(?:rates?|apr|fixed|\d{1,2}-?year)$/i;
+var RATE_BRIDGE_RE = /^(?:of|at|near|around|about|to|from|under|below|above|over|by|in|on|is|are|was|were|be|been|hit|hits|reached?|sits?|sitting|sat|hovers?|hovering|hovered|remains?|stays?|holds?|holding|held|averages?|averaged|averaging|drops?|dropped|fell|falls?|rose|rises?|climbed|climbs?|moved?|moves|starts?|starting)$/i;
+var WORD_RE = /[a-z0-9][a-z0-9'.-]*/gi;
+function words(text) {
+  return (text.match(WORD_RE) ?? []).map((w) => w.replace(/\.$/, ""));
+}
+function rateNounGoverns(before, after) {
+  const pre = words(before);
+  const post = words(after);
+  const p1 = pre[pre.length - 1];
+  const p2 = pre[pre.length - 2];
+  if (p1 && RATE_NOUN_RE.test(p1)) return true;
+  if (p1 && p2 && RATE_BRIDGE_RE.test(p1) && RATE_NOUN_RE.test(p2)) return true;
+  const n1 = post[0];
+  const n2 = post[1];
+  if (n1 && RATE_NOUN_RE.test(n1)) return true;
+  if (n1 && n2 && RATE_BRIDGE_RE.test(n1) && RATE_NOUN_RE.test(n2)) return true;
+  return false;
+}
+function clauseAround(text, from, to) {
+  let start = 0;
+  for (let i = from - 1; i >= 0; i--) {
+    if (CLAUSE_BOUNDARY_RE.test(text[i])) {
+      start = i + 1;
+      break;
+    }
+  }
+  let end = text.length;
+  for (let i = to; i < text.length; i++) {
+    if (CLAUSE_BOUNDARY_RE.test(text[i])) {
+      end = i;
+      break;
+    }
+  }
+  return { before: text.slice(start, from), after: text.slice(to, end) };
+}
+function isRateFigure(masked, idx, len, digits) {
+  if (/\.\d{3}$/.test(digits)) return true;
+  const { before, after } = clauseAround(masked, idx, idx + len);
+  return rateNounGoverns(before, after);
+}
 function scanRegZ(text, masked) {
   const lower = masked.toLowerCase();
   const out = [];
@@ -1007,12 +1047,11 @@ function scanRegZ(text, masked) {
   while ((m = PERCENT_TOKEN.exec(lower)) !== null) {
     const idx = m.index;
     if (PERCENT_TOKEN.lastIndex === idx) PERCENT_TOKEN.lastIndex++;
+    const digits = m[0].replace(/\s*(?:%|percent)$/i, "");
+    if (!isRateFigure(lower, idx, m[0].length, digits)) continue;
     const start = Math.max(0, idx - WINDOW);
     const end = Math.min(lower.length, idx + m[0].length + WINDOW);
     const ctx = lower.slice(start, end);
-    const hasRateCue = RATE_CUES.test(ctx);
-    const hasValueCue = VALUE_CUES.test(ctx);
-    if (hasValueCue && !hasRateCue) continue;
     if (APR_PRESENT.test(ctx)) continue;
     if (OWN_RATE_CUES.test(ctx) && !OFFER_CUES.test(ctx)) continue;
     out.push({ index: idx, matchedText: text.slice(idx, idx + m[0].length) });
@@ -1138,11 +1177,11 @@ function scanLaneViolations(text, role, opts = {}) {
   const applicable = new Set(lanesForRole(role));
   if (applicable.size === 0) return [];
   const masked = maskHtml(text);
-  const words = indexWords(masked);
+  const words2 = indexWords(masked);
   const violations = [];
   for (const { entry, matcher, hasOwnRate } of COMPILED2) {
     if (!applicable.has(entry.lane)) continue;
-    for (const { index, matchedText } of runMatcher(matcher, text, masked, words, opts.disclaimerRanges)) {
+    for (const { index, matchedText } of runMatcher(matcher, text, masked, words2, opts.disclaimerRanges)) {
       if (hasOwnRate && isOwnRate(masked, index, matchedText.length)) continue;
       const severity = applyFloor2(entry.severity, opts.severityFloor);
       violations.push({
