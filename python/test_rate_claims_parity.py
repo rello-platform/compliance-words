@@ -95,10 +95,10 @@ class RateClaimBehavior(unittest.TestCase):
 
     def test_regz_positives(self):
         for t in [
-            "I'm offering 6.1% on a 30-year fixed.",
+            "a 30-year at 6.1%",
             "a rate of 6.125%",
             "rates near 6%",
-            "6.125%.",
+            "6.125%.",  # three decimals (K-13)
         ]:
             self.assertIn("regz_rate_figure_no_apr", self._tokens(t), t)
 
@@ -127,12 +127,13 @@ class RateClaimBehavior(unittest.TestCase):
 
     def test_regz_market_and_prospective_offer_still_flag(self):
         for t in [
-            "Rates are at 6.4% right now.",
-            "30-yr is now 6.4%.",
-            "I'm offering 5.5%.",
+            # K-13: the rate noun must govern (<=1 preposition/verb between) or three decimals.
+            "Rates at 6.4% right now.",
+            "the 30-year is 6.4%.",
+            "I'm offering a rate of 5.5%.",
             "a rate of 6.1%",
-            "Your new rate could be 5.5%.",
-            "We could get your rate down to 5.5%.",
+            "Your new rate is 5.5%.",
+            "We could get your rate to 5.5%.",
         ]:
             self.assertIn("regz_rate_figure_no_apr", self._tokens(t), t)
 
@@ -175,8 +176,19 @@ class RateClaimBehavior(unittest.TestCase):
     def test_html_masking(self):
         self.assertIn(
             "regz_rate_figure_no_apr",
-            self._tokens("<b>The 30-year fixed is around 5.5%</b> right now."),
+            self._tokens("<b>The 30-year fixed is 5.5%</b> right now."),
         )
+
+    def test_k13_eight_fixtures_and_releases(self):
+        # Rello #1327's ruling fixtures + the Big Star span (K-30).
+        for t in ["rate of 6.75%", "rates near 6.75%", "a fixed 7 % loan", "the 30-year is sitting at 6.990%"]:
+            self.assertIn("regz_rate_figure_no_apr", self._tokens(t), t)
+        self.assertNotIn("regz_rate_figure_no_apr", self._tokens("6.99% APR"))
+        for t in ["values are up about 2.4%", "up around 2.4%", "mortgage applications rose 5%",
+                  "Values across Sandy are up 2.4% year over year (Zillow home-value index, as of July 2026), even as mortgage rates hold steady.",
+                  # K-13 RELEASES (pinned, visible): two or more words between the noun and a two-decimal figure
+                  "the 30-year fixed is sitting around 5.5% right now", "Rates are at 6.4% right now.", "Your new rate could be 5.5%."]:
+            self.assertNotIn("regz_rate_figure_no_apr", self._tokens(t), t)
 
     def test_degenerate_input(self):
         self.assertEqual(scan_rate_claims(""), [])

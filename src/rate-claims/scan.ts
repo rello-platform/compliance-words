@@ -28,13 +28,17 @@
  * ── REG-Z rule (`regz_rate_figure_no_apr`) ──────────────────────────────────
  * Reg Z / TILA (12 CFR §1026.24) — a stated consumer-credit RATE figure is a
  * "trigger term" that pulls in mandatory APR disclosure. The rule flags a
- * percentage that reads as an interest / mortgage RATE when no "APR" token sits
- * nearby. It mirrors Milo's eval helper `detectsRateFigure` byte-for-byte: a
- * percentage flags ONLY in a rate context (a rate cue near the %), and is
- * EXCLUDED when it reads as a home-VALUE / price / appreciation figure (a value
- * cue near the % AND no rate cue). The APR-present escape (an "APR" / "A.P.R."
- * token within proximity of the % → not flagged) is the additive Reg-Z piece on
- * top of `detectsRateFigure`: a properly-disclosed "6.1% APR" is compliant.
+ * percentage that IS a rate figure when no "APR" token sits nearby. Which
+ * percentages are rate figures is K-13 (Kelly's ruling, Rello #1327, applied
+ * here 2026-09-16 as K-30): a RATE NOUN (rate / rates / APR / fixed / N-year)
+ * governs the figure in the same clause with at most one preposition or verb
+ * between, or the figure carries three decimals. Nothing else is a rate figure
+ * — not a bare "6.12%", not a percent behind a preposition, not a percent with
+ * a rate word elsewhere in the sentence. The pre-K-13 cue window (a rate cue
+ * within 40 characters, minus value cues) is retired: it read "values up 2.4%
+ * year over year … rates" as a rate. The APR-present escape (an "APR" /
+ * "A.P.R." token within proximity of the % → not flagged) is the additive Reg-Z
+ * piece: a properly-disclosed "6.1% APR" is compliant.
  *
  * LEAD-OWNED-RATE escape (Kelly ruling 2026-06-03). A factual statement about the
  * LEAD'S OWN EXISTING rate ("your current rate is 2.88%", "you're sitting on a
@@ -47,21 +51,20 @@
  * will be 5.5%") and STILL flags. ONLY a MARKET / advertised-OFFER rate without
  * APR is the real violation.
  *
- *   FLAGS:   "the 30-year fixed is sitting around 5.5% right now"
- *            "I'm offering 6.1% on a 30-year fixed"
- *            "a rate of 6.125%"
- *            "rates are at 6.4%" / "30-yr is now 6%"
- *            "rates near 6%"
+ *   FLAGS:   "a rate of 6.125%" / "rates near 6%" / "rates at 6.4% right now"
+ *            "a fixed 7 % loan" / "15-year at 6.25%" / "the 30-year fixed is 5.5%"
+ *            "the 30-year is sitting at 6.990%" (three decimals)
  *            "your new rate could be 5.5%" (PROSPECTIVE offer, not existing rate)
  *            "your rate will be 5.5%" / "your rate would be 5.5%" (FUTURE-TENSE
  *            quote = a prospective offer, not the lead's existing rate — v0.5.0)
- *            a bare "6.125%" with no value/own-rate context (conservative — a
- *            stray rate number must still trip the ban)
  *   ALLOWS:  "6.1% APR on a 30-year fixed" (APR disclosed)
  *            "your current rate is 2.88%" (lead's OWN existing rate — Kelly)
  *            "you're sitting on a 2.94% rate" / "your 6.5% rate alert"
- *            "prices are up 5% from last year" (home-value figure)
- *            "home values rose roughly 5% year over year"
+ *            "prices are up 5% from last year" / "values up 2.4% year over year"
+ *            "mortgage applications rose 5%" (mortgage is not a rate noun)
+ *            "the 30-year fixed is sitting around 5.5%" — K-13 RELEASES: three
+ *            words between the noun and a two-decimal figure (pinned in the
+ *            tests so the release is visible; widen by measurement, not argument)
  *            "rates have eased lately" (DIRECTIONAL — no figure)
  *
  * ── UDAAP rule (`udaap_rate_comparison`) ────────────────────────────────────
@@ -145,27 +148,15 @@ function withinAnyRange(
   return ranges.some(([start, end]) => offset >= start && offset < end);
 }
 
-// ── REG-Z numeric primitives (mirror Milo's detectsRateFigure exactly) ───────
+// ── REG-Z numeric primitives ─────────────────────────────────────────────────
 //
 // A percentage-shaped token: "6", "6.1", "6.125" followed by % or "percent".
-// Verbatim from composition-prompt-eval.test.ts::detectsRateFigure so the
-// platform has ONE rate-vs-value distinction, not two that can drift.
 const PERCENT_TOKEN = /\b\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent\b)/gi;
 
-// Window (chars) scanned on each side of a percentage for context cues.
+// Window (chars) scanned on each side of a RATE figure for the APR / own-rate escapes.
 const WINDOW = 40;
 
-// Rate-context cues — a % near any of these reads as an interest/mortgage RATE.
-// Verbatim from detectsRateFigure RATE_CUES.
-const RATE_CUES =
-  /\brate\b|\brates\b|\bmortgage\b|\bapr\b|\bloan\b|\b30[\s-]?(?:year|yr)\b|\b15[\s-]?(?:year|yr)\b|thirty[\s-]?year|fifteen[\s-]?year|\bfixed\b|\barm\b|\bapy\b|\binterest\b|\bpoints?\b|\bbps\b|basis points?|offering|offered|locked? in|lock(?:ed)? at/i;
-
-// Value-context cues — a % near any of these reads as a home-value / price /
-// appreciation figure (allowed). Verbatim from detectsRateFigure VALUE_CUES.
-// "market" alone is intentionally NOT a value cue: "below the market" pairs with
-// rate talk and must not whitelist.
-const VALUE_CUES =
-  /\bup\b|from last year|year[\s-]?over[\s-]?year|\byoy\b|\bprices?\b|home values?|\bvalues?\b|\bworth\b|appreciat|\bgained\b|\bgaining\b|\brose\b|\brisen\b|\brising\b|climbed|\bequity\b|\bappreciation\b/i;
+// (RATE_CUES / VALUE_CUES retired by K-13 — the rule above decides rate-vs-not.)
 
 // APR-present escape — an "APR"/"A.P.R." token near the % means the rate figure
 // is properly Reg-Z-disclosed. This is the additive Reg-Z piece on top of
@@ -217,6 +208,69 @@ export const OFFER_CUES =
  *  — shared with the LANE checker so both scanners use the identical proximity. */
 export const OWN_RATE_WINDOW = WINDOW;
 
+// ── K-13 (2026-09-15, Kelly's ruling via Rello #1327) — WHEN A PERCENT IS A
+// RATE FIGURE. Applied here 2026-09-16 (K-30) after the cue-window read
+// "2.4%" — a year-over-year home-value delta with the word "rates" inside 40
+// characters — as a bare rate and sent a Big Star compose to the safe
+// template. The window is gone. A percent is a rate figure only when
+//   - a RATE NOUN — rate, rates, APR, fixed, N-year — sits immediately before
+//     or after the figure with at most ONE preposition or verb between, in the
+//     same clause (. ! ? ; : , or a line break ends it); or
+//   - the figure carries three decimals ("6.990%").
+// A preposition never anchors ("at 20% down", "sits at 3% above" release); a
+// rate word elsewhere in the clause does not ("mortgage applications rose 5%",
+// "values up 2.4% year over year near the mortgage" release). The same regexes
+// as Rello's send-time `containsRateClaim` — one rule, two homes, byte-equal.
+// The APR-present and lead-owned-rate escapes below still apply to a figure
+// the rule classifies as a rate.
+const CLAUSE_BOUNDARY_RE = /[.!?;:,\n]/;
+/** The nouns that make a percent a rate figure. */
+const RATE_NOUN_RE = /^(?:rates?|apr|fixed|\d{1,2}-?year)$/i;
+/** The ONE word allowed between the noun and the figure: a preposition or a verb. */
+const RATE_BRIDGE_RE =
+  /^(?:of|at|near|around|about|to|from|under|below|above|over|by|in|on|is|are|was|were|be|been|hit|hits|reached?|sits?|sitting|sat|hovers?|hovering|hovered|remains?|stays?|holds?|holding|held|averages?|averaged|averaging|drops?|dropped|fell|falls?|rose|rises?|climbed|climbs?|moved?|moves|starts?|starting)$/i;
+const WORD_RE = /[a-z0-9][a-z0-9'.-]*/gi;
+
+/** The words of `text` in order, dropping a trailing period (so "6.5%." tokenises cleanly). */
+function words(text: string): string[] {
+  return (text.match(WORD_RE) ?? []).map((w) => w.replace(/\.$/, ""));
+}
+
+/** True when a rate noun governs the figure that sits between `before` and `after` within one clause. */
+function rateNounGoverns(before: string, after: string): boolean {
+  const pre = words(before);
+  const post = words(after);
+  const p1 = pre[pre.length - 1];
+  const p2 = pre[pre.length - 2];
+  if (p1 && RATE_NOUN_RE.test(p1)) return true;
+  if (p1 && p2 && RATE_BRIDGE_RE.test(p1) && RATE_NOUN_RE.test(p2)) return true;
+  const n1 = post[0];
+  const n2 = post[1];
+  if (n1 && RATE_NOUN_RE.test(n1)) return true;
+  if (n1 && n2 && RATE_BRIDGE_RE.test(n1) && RATE_NOUN_RE.test(n2)) return true;
+  return false;
+}
+
+/** The clause containing [from, to): text between the nearest clause boundaries. */
+function clauseAround(text: string, from: number, to: number): { before: string; after: string } {
+  let start = 0;
+  for (let i = from - 1; i >= 0; i--) {
+    if (CLAUSE_BOUNDARY_RE.test(text[i])) { start = i + 1; break; }
+  }
+  let end = text.length;
+  for (let i = to; i < text.length; i++) {
+    if (CLAUSE_BOUNDARY_RE.test(text[i])) { end = i; break; }
+  }
+  return { before: text.slice(start, from), after: text.slice(to, end) };
+}
+
+/** K-13: is the percent token at [idx, idx+len) of `masked` a RATE figure? */
+function isRateFigure(masked: string, idx: number, len: number, digits: string): boolean {
+  if (/\.\d{3}$/.test(digits)) return true;
+  const { before, after } = clauseAround(masked, idx, idx + len);
+  return rateNounGoverns(before, after);
+}
+
 function scanRegZ(text: string, masked: string): Array<{ index: number; matchedText: string }> {
   const lower = masked.toLowerCase();
   const out: Array<{ index: number; matchedText: string }> = [];
@@ -227,15 +281,13 @@ function scanRegZ(text: string, masked: string): Array<{ index: number; matchedT
     const idx = m.index;
     if (PERCENT_TOKEN.lastIndex === idx) PERCENT_TOKEN.lastIndex++; // zero-width guard
 
+    // K-13: not a rate figure → not a Reg-Z trigger term, whatever sits nearby.
+    const digits = m[0].replace(/\s*(?:%|percent)$/i, "");
+    if (!isRateFigure(lower, idx, m[0].length, digits)) continue;
+
     const start = Math.max(0, idx - WINDOW);
     const end = Math.min(lower.length, idx + m[0].length + WINDOW);
     const ctx = lower.slice(start, end);
-
-    const hasRateCue = RATE_CUES.test(ctx);
-    const hasValueCue = VALUE_CUES.test(ctx);
-
-    // Allow a clean home-VALUE figure: value cue present AND no rate cue.
-    if (hasValueCue && !hasRateCue) continue;
 
     // Allow a properly Reg-Z-disclosed rate: an APR token sits near the %.
     if (APR_PRESENT.test(ctx)) continue;
@@ -246,8 +298,6 @@ function scanRegZ(text: string, masked: string): Array<{ index: number; matchedT
     // keeps "your new rate could be 5.5%" flagged (advertised offer, not a fact).
     if (OWN_RATE_CUES.test(ctx) && !OFFER_CUES.test(ctx)) continue;
 
-    // Everything else flags: explicit rate context with no APR, OR an ambiguous
-    // % with neither cue (conservative — a stray rate number must still trip).
     out.push({ index: idx, matchedText: text.slice(idx, idx + m[0].length) });
   }
   return out;

@@ -380,13 +380,17 @@ declare function hasLaneViolation(text: string, role: Role, opts?: ScanLaneOptio
  * ── REG-Z rule (`regz_rate_figure_no_apr`) ──────────────────────────────────
  * Reg Z / TILA (12 CFR §1026.24) — a stated consumer-credit RATE figure is a
  * "trigger term" that pulls in mandatory APR disclosure. The rule flags a
- * percentage that reads as an interest / mortgage RATE when no "APR" token sits
- * nearby. It mirrors Milo's eval helper `detectsRateFigure` byte-for-byte: a
- * percentage flags ONLY in a rate context (a rate cue near the %), and is
- * EXCLUDED when it reads as a home-VALUE / price / appreciation figure (a value
- * cue near the % AND no rate cue). The APR-present escape (an "APR" / "A.P.R."
- * token within proximity of the % → not flagged) is the additive Reg-Z piece on
- * top of `detectsRateFigure`: a properly-disclosed "6.1% APR" is compliant.
+ * percentage that IS a rate figure when no "APR" token sits nearby. Which
+ * percentages are rate figures is K-13 (Kelly's ruling, Rello #1327, applied
+ * here 2026-09-16 as K-30): a RATE NOUN (rate / rates / APR / fixed / N-year)
+ * governs the figure in the same clause with at most one preposition or verb
+ * between, or the figure carries three decimals. Nothing else is a rate figure
+ * — not a bare "6.12%", not a percent behind a preposition, not a percent with
+ * a rate word elsewhere in the sentence. The pre-K-13 cue window (a rate cue
+ * within 40 characters, minus value cues) is retired: it read "values up 2.4%
+ * year over year … rates" as a rate. The APR-present escape (an "APR" /
+ * "A.P.R." token within proximity of the % → not flagged) is the additive Reg-Z
+ * piece: a properly-disclosed "6.1% APR" is compliant.
  *
  * LEAD-OWNED-RATE escape (Kelly ruling 2026-06-03). A factual statement about the
  * LEAD'S OWN EXISTING rate ("your current rate is 2.88%", "you're sitting on a
@@ -399,21 +403,20 @@ declare function hasLaneViolation(text: string, role: Role, opts?: ScanLaneOptio
  * will be 5.5%") and STILL flags. ONLY a MARKET / advertised-OFFER rate without
  * APR is the real violation.
  *
- *   FLAGS:   "the 30-year fixed is sitting around 5.5% right now"
- *            "I'm offering 6.1% on a 30-year fixed"
- *            "a rate of 6.125%"
- *            "rates are at 6.4%" / "30-yr is now 6%"
- *            "rates near 6%"
+ *   FLAGS:   "a rate of 6.125%" / "rates near 6%" / "rates at 6.4% right now"
+ *            "a fixed 7 % loan" / "15-year at 6.25%" / "the 30-year fixed is 5.5%"
+ *            "the 30-year is sitting at 6.990%" (three decimals)
  *            "your new rate could be 5.5%" (PROSPECTIVE offer, not existing rate)
  *            "your rate will be 5.5%" / "your rate would be 5.5%" (FUTURE-TENSE
  *            quote = a prospective offer, not the lead's existing rate — v0.5.0)
- *            a bare "6.125%" with no value/own-rate context (conservative — a
- *            stray rate number must still trip the ban)
  *   ALLOWS:  "6.1% APR on a 30-year fixed" (APR disclosed)
  *            "your current rate is 2.88%" (lead's OWN existing rate — Kelly)
  *            "you're sitting on a 2.94% rate" / "your 6.5% rate alert"
- *            "prices are up 5% from last year" (home-value figure)
- *            "home values rose roughly 5% year over year"
+ *            "prices are up 5% from last year" / "values up 2.4% year over year"
+ *            "mortgage applications rose 5%" (mortgage is not a rate noun)
+ *            "the 30-year fixed is sitting around 5.5%" — K-13 RELEASES: three
+ *            words between the noun and a two-decimal figure (pinned in the
+ *            tests so the release is visible; widen by measurement, not argument)
  *            "rates have eased lately" (DIRECTIONAL — no figure)
  *
  * ── UDAAP rule (`udaap_rate_comparison`) ────────────────────────────────────

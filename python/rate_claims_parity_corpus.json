@@ -1,45 +1,182 @@
 {
   "$comment": "Shared TS<->Python parity corpus for the Reg-Z + UDAAP rate-claim checker (DRAFT, warn-only). Each case is run through BOTH the TS scanRateClaims (via node) and the Python scan_rate_claims; the sorted (token, severity, index) tuples MUST be identical. Mirrors the lane parity discipline. Add a case here and BOTH languages must agree.",
   "cases": [
-    { "text": "The 30-year fixed is sitting around 5.5% right now, which is actually running below the broader market average." },
-    { "text": "I'm offering 6.1% on a 30-year fixed." },
-    { "text": "a rate of 6.125% if you act fast." },
-    { "text": "Rates near 6% these days." },
-    { "text": "Your interest rate could be 5.875%." },
-    { "text": "We can lock you in at 6.0% on a fixed." },
-    { "text": "6.125%." },
-    { "text": "6.1% APR on a 30-year fixed — fully disclosed." },
-    { "text": "The annual percentage rate is 6.4% APR." },
-    { "text": "Prices are up 5% from last year." },
-    { "text": "Home values rose roughly 5% year over year." },
-    { "text": "Your equity grew about 8% as values climbed." },
-    { "text": "Rates have eased a bit lately." },
-    { "text": "We beat any rate the big banks quote." },
-    { "text": "We'll beat any competitor." },
-    { "text": "Nobody can beat our pricing." },
-    { "text": "Our rates can't be beat." },
-    { "text": "Get the lowest rate around." },
-    { "text": "We offer the best rates in town." },
-    { "text": "The most competitive rates anywhere." },
-    { "text": "Rates lower than other lenders, guaranteed." },
-    { "text": "Better than the banks." },
-    { "text": "40 bps below market for our preferred clients." },
-    { "text": "25 basis points below the going rate." },
-    { "text": "rates nobody can match." },
-    { "text": "The median sale price in your zip is around 5% higher than last year." },
-    { "text": "Active listings are up 12% from a year ago." },
-    { "text": "<b>The 30-year fixed is around 5.5%</b> right now." },
-    { "text": "Ask your loan officer about today's rates." },
-    { "text": "Your current rate is 2.88%, which is great." },
-    { "text": "You're sitting on a 2.94% rate — hold onto it." },
-    { "text": "Saw your 6.5% rate alert come through." },
-    { "text": "Your 2.67% rate is well below today's market." },
-    { "text": "Their current rate is 3.1% on the existing loan." },
-    { "text": "The rate you locked at 3.25% is fantastic." },
-    { "text": "Rates are at 6.4% right now." },
-    { "text": "30-yr is now 6.4%." },
-    { "text": "Your new rate could be 5.5%." },
-    { "text": "We could get your rate down to 5.5%." },
-    { "text": "" }
+    {
+      "text": "The 30-year fixed is sitting around 5.5% right now, which is actually running below the broader market average."
+    },
+    {
+      "text": "I'm offering 6.1% on a 30-year fixed."
+    },
+    {
+      "text": "a rate of 6.125% if you act fast."
+    },
+    {
+      "text": "Rates near 6% these days."
+    },
+    {
+      "text": "Your interest rate could be 5.875%."
+    },
+    {
+      "text": "We can lock you in at 6.0% on a fixed."
+    },
+    {
+      "text": "6.125%."
+    },
+    {
+      "text": "6.1% APR on a 30-year fixed — fully disclosed."
+    },
+    {
+      "text": "The annual percentage rate is 6.4% APR."
+    },
+    {
+      "text": "Prices are up 5% from last year."
+    },
+    {
+      "text": "Home values rose roughly 5% year over year."
+    },
+    {
+      "text": "Your equity grew about 8% as values climbed."
+    },
+    {
+      "text": "Rates have eased a bit lately."
+    },
+    {
+      "text": "We beat any rate the big banks quote."
+    },
+    {
+      "text": "We'll beat any competitor."
+    },
+    {
+      "text": "Nobody can beat our pricing."
+    },
+    {
+      "text": "Our rates can't be beat."
+    },
+    {
+      "text": "Get the lowest rate around."
+    },
+    {
+      "text": "We offer the best rates in town."
+    },
+    {
+      "text": "The most competitive rates anywhere."
+    },
+    {
+      "text": "Rates lower than other lenders, guaranteed."
+    },
+    {
+      "text": "Better than the banks."
+    },
+    {
+      "text": "40 bps below market for our preferred clients."
+    },
+    {
+      "text": "25 basis points below the going rate."
+    },
+    {
+      "text": "rates nobody can match."
+    },
+    {
+      "text": "The median sale price in your zip is around 5% higher than last year."
+    },
+    {
+      "text": "Active listings are up 12% from a year ago."
+    },
+    {
+      "text": "<b>The 30-year fixed is around 5.5%</b> right now."
+    },
+    {
+      "text": "Ask your loan officer about today's rates."
+    },
+    {
+      "text": "Your current rate is 2.88%, which is great."
+    },
+    {
+      "text": "You're sitting on a 2.94% rate — hold onto it."
+    },
+    {
+      "text": "Saw your 6.5% rate alert come through."
+    },
+    {
+      "text": "Your 2.67% rate is well below today's market."
+    },
+    {
+      "text": "Their current rate is 3.1% on the existing loan."
+    },
+    {
+      "text": "The rate you locked at 3.25% is fantastic."
+    },
+    {
+      "text": "Rates are at 6.4% right now."
+    },
+    {
+      "text": "30-yr is now 6.4%."
+    },
+    {
+      "text": "Your new rate could be 5.5%."
+    },
+    {
+      "text": "We could get your rate down to 5.5%."
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "rate of 6.75%"
+    },
+    {
+      "text": "rates near 6.75%"
+    },
+    {
+      "text": "a fixed 7 % loan"
+    },
+    {
+      "text": "6.99% APR"
+    },
+    {
+      "text": "the 30-year is sitting at 6.990%"
+    },
+    {
+      "text": "values are up about 2.4%"
+    },
+    {
+      "text": "up around 2.4%"
+    },
+    {
+      "text": "mortgage applications rose 5%"
+    },
+    {
+      "text": "Values across Sandy are up 2.4% year over year (Zillow home-value index, as of July 2026), even as mortgage rates hold steady."
+    },
+    {
+      "text": "Home values rose 2.4% year over year while rates stayed put."
+    },
+    {
+      "text": "inventory sits at 3% above last year"
+    },
+    {
+      "text": "6.12%."
+    },
+    {
+      "text": "Your rate will be 5.500%."
+    },
+    {
+      "text": "the 30-year fixed is 5.5% right now"
+    },
+    {
+      "text": "<p>mortgage rates<br/>near 6.5%</p>"
+    },
+    {
+      "text": "Rates are moving, inventory is up 8% this month."
+    },
+    {
+      "text": "Talk to us about your rate, at 20% down you avoid PMI"
+    },
+    {
+      "text": "Rates are moving. At 20% down you skip PMI."
+    },
+    {
+      "text": "the rate\nat 20% down"
+    }
   ]
 }

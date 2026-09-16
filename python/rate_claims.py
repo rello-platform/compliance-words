@@ -52,19 +52,65 @@ def _within_any_range(offset, ranges):
 _PERCENT_TOKEN = re.compile(r"\b\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent\b)", re.IGNORECASE)
 _WINDOW = 40
 
-_RATE_CUES = re.compile(
-    r"\brate\b|\brates\b|\bmortgage\b|\bapr\b|\bloan\b|\b30[\s-]?(?:year|yr)\b|"
-    r"\b15[\s-]?(?:year|yr)\b|thirty[\s-]?year|fifteen[\s-]?year|\bfixed\b|\barm\b|"
-    r"\bapy\b|\binterest\b|\bpoints?\b|\bbps\b|basis points?|offering|offered|"
-    r"locked? in|lock(?:ed)? at",
+# K-13 (Rello #1327; applied here 2026-09-16, K-30): a percent is a RATE figure
+# only when a rate noun governs it in the same clause with at most ONE
+# preposition or verb between, or when it carries three decimals. Mirror of
+# scan.ts CLAUSE_BOUNDARY_RE / RATE_NOUN_RE / RATE_BRIDGE_RE / WORD_RE verbatim.
+_CLAUSE_BOUNDARY = re.compile(r"[.!?;:,\n]")
+_RATE_NOUN = re.compile(r"^(?:rates?|apr|fixed|\d{1,2}-?year)$", re.IGNORECASE)
+_RATE_BRIDGE = re.compile(
+    r"^(?:of|at|near|around|about|to|from|under|below|above|over|by|in|on|is|are|was|were|be|been|"
+    r"hit|hits|reached?|sits?|sitting|sat|hovers?|hovering|hovered|remains?|stays?|holds?|holding|held|"
+    r"averages?|averaged|averaging|drops?|dropped|fell|falls?|rose|rises?|climbed|climbs?|moved?|moves|starts?|starting)$",
     re.IGNORECASE,
 )
-_VALUE_CUES = re.compile(
-    r"\bup\b|from last year|year[\s-]?over[\s-]?year|\byoy\b|\bprices?\b|"
-    r"home values?|\bvalues?\b|\bworth\b|appreciat|\bgained\b|\bgaining\b|"
-    r"\brose\b|\brisen\b|\brising\b|climbed|\bequity\b|\bappreciation\b",
-    re.IGNORECASE,
-)
+_WORD = re.compile(r"[a-z0-9][a-z0-9'.-]*", re.IGNORECASE)
+_THREE_DECIMALS = re.compile(r"\.\d{3}$")
+
+
+def _words(text):
+    return [w[:-1] if w.endswith(".") else w for w in _WORD.findall(text)]
+
+
+def _rate_noun_governs(before, after):
+    pre = _words(before)
+    post = _words(after)
+    p1 = pre[-1] if len(pre) >= 1 else None
+    p2 = pre[-2] if len(pre) >= 2 else None
+    if p1 and _RATE_NOUN.match(p1):
+        return True
+    if p1 and p2 and _RATE_BRIDGE.match(p1) and _RATE_NOUN.match(p2):
+        return True
+    n1 = post[0] if len(post) >= 1 else None
+    n2 = post[1] if len(post) >= 2 else None
+    if n1 and _RATE_NOUN.match(n1):
+        return True
+    if n1 and n2 and _RATE_BRIDGE.match(n1) and _RATE_NOUN.match(n2):
+        return True
+    return False
+
+
+def _clause_around(text, start_idx, end_idx):
+    start = 0
+    for i in range(start_idx - 1, -1, -1):
+        if _CLAUSE_BOUNDARY.match(text[i]):
+            start = i + 1
+            break
+    end = len(text)
+    for i in range(end_idx, len(text)):
+        if _CLAUSE_BOUNDARY.match(text[i]):
+            end = i
+            break
+    return text[start:start_idx], text[end_idx:end]
+
+
+def _is_rate_figure(masked, idx, length, digits):
+    if _THREE_DECIMALS.search(digits):
+        return True
+    before, after = _clause_around(masked, idx, idx + length)
+    return _rate_noun_governs(before, after)
+
+
 _APR_PRESENT = re.compile(r"\bapr\b|\ba\.p\.r\.|\bannual percentage rate\b", re.IGNORECASE)
 
 # LEAD-OWNED-RATE escape (Kelly ruling 2026-06-03). A factual statement about the
@@ -116,12 +162,11 @@ def _scan_regz(text, masked):
         end = min(len(lower), idx + len(m.group(0)) + _WINDOW)
         ctx = lower[start:end]
 
-        has_rate_cue = bool(_RATE_CUES.search(ctx))
-        has_value_cue = bool(_VALUE_CUES.search(ctx))
-
-        # Allow a clean home-VALUE figure: value cue present AND no rate cue.
-        if has_value_cue and not has_rate_cue:
+        # K-13: not a rate figure -> not a Reg-Z trigger term, whatever sits nearby.
+        digits = re.sub(r"\s*(?:%|percent)$", "", m.group(0), flags=re.IGNORECASE)
+        if not _is_rate_figure(lower, idx, len(m.group(0)), digits):
             continue
+
         # Allow a properly Reg-Z-disclosed rate: an APR token near the %.
         if _APR_PRESENT.search(ctx):
             continue
