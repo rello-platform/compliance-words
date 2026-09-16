@@ -330,6 +330,7 @@ describe("dist/compliance-words-keyset.json — lane block", () => {
 
   it("does NOT disturb the M7 entries block (additive)", () => {
     assert.equal(keyset.entries.length, 14);
-    assert.equal(keyset.version, "0.6.0");
+    // The keyset is generated from package.json at build; pin to it, not a literal (v0.7.0 shipped with this literal stale).
+    assert.equal(keyset.version, JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version);
   });
 });

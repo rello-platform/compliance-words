@@ -471,6 +471,18 @@ declare const RATE_CLAIM_CONFIG: {
     readonly tokens: readonly ["regz_rate_figure_no_apr", "udaap_rate_comparison"];
 };
 /**
+ * K-13 as a primitive for consumers that must know WHAT a percent means before
+ * grounding it (Milo's validatePercentages, A3 2026-09-16): every percent token
+ * in `text` with whether a rate noun governs it (or it carries three decimals).
+ * HTML is masked first (offsets preserved). Pure; never throws.
+ */
+interface PercentFigure {
+    readonly index: number;
+    readonly matchedText: string;
+    readonly isRateFigure: boolean;
+}
+declare function classifyPercentFigures(text: string): readonly PercentFigure[];
+/**
  * Scan `text` for Reg-Z rate-figure and UDAAP rate-comparison violations.
  * Empty/non-string input returns `[]` (no throw). Matches inside a caller-marked
  * `disclaimerRanges` block are excused (fail-safe-strict otherwise).
@@ -483,4 +495,4 @@ declare function scanRateClaims(text: string, opts?: RateClaimOptions): readonly
  */
 declare function hasRateClaimViolation(text: string, opts?: RateClaimOptions): boolean;
 
-export { type AllowedContext, CLAUSE_BREAKERS, COMPLIANCE_REGISTRY, COMPLIANCE_TOKEN_SET, type CheckOptions, type ComplianceCategory, type ComplianceEntry, DEFAULT_LIST_NEGATION_PROXIMITY, DEFAULT_NEGATION_PROXIMITY, LANE_REGISTRY, LANE_TOKEN_SET, LIST_COORDINATORS, type Lane, type LaneEntry, type LaneSeverity, type LaneViolation, type MatchType, NEGATION_CUES, RATE_CLAIM_CONFIG, type RateClaimOptions, type RateClaimSeverity, type RateClaimToken, type RateClaimViolation, type Role, type ScanLaneOptions, type Violation, checkCompliance, hasHardBlock, hasLaneViolation, hasRateClaimViolation, listComplianceEntries, listLaneEntries, scanLaneViolations, scanRateClaims };
+export { type AllowedContext, CLAUSE_BREAKERS, COMPLIANCE_REGISTRY, COMPLIANCE_TOKEN_SET, type CheckOptions, type ComplianceCategory, type ComplianceEntry, DEFAULT_LIST_NEGATION_PROXIMITY, DEFAULT_NEGATION_PROXIMITY, LANE_REGISTRY, LANE_TOKEN_SET, LIST_COORDINATORS, type Lane, type LaneEntry, type LaneSeverity, type LaneViolation, type MatchType, NEGATION_CUES, type PercentFigure, RATE_CLAIM_CONFIG, type RateClaimOptions, type RateClaimSeverity, type RateClaimToken, type RateClaimViolation, type Role, type ScanLaneOptions, type Violation, checkCompliance, classifyPercentFigures, hasHardBlock, hasLaneViolation, hasRateClaimViolation, listComplianceEntries, listLaneEntries, scanLaneViolations, scanRateClaims };

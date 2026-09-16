@@ -576,7 +576,8 @@ describe("dist/compliance-words-keyset.json", () => {
 
   it("names the package + version and carries all 14 entries", () => {
     assert.equal(keyset.package, "@rello-platform/compliance-words");
-    assert.equal(keyset.version, "0.6.0");
+    // The keyset is generated from package.json at build; pin to it, not a literal (v0.7.0 shipped with this literal stale).
+    assert.equal(keyset.version, JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version);
     assert.equal(keyset.entries.length, 14);
   });
 

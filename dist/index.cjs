@@ -31,6 +31,7 @@ __export(index_exports, {
   NEGATION_CUES: () => NEGATION_CUES,
   RATE_CLAIM_CONFIG: () => RATE_CLAIM_CONFIG,
   checkCompliance: () => checkCompliance,
+  classifyPercentFigures: () => classifyPercentFigures,
   hasHardBlock: () => hasHardBlock,
   hasLaneViolation: () => hasLaneViolation,
   hasRateClaimViolation: () => hasRateClaimViolation,
@@ -1082,6 +1083,20 @@ function isRateFigure(masked, idx, len, digits) {
   const { before, after } = clauseAround(masked, idx, idx + len);
   return rateNounGoverns(before, after);
 }
+function classifyPercentFigures(text) {
+  if (typeof text !== "string" || text.length === 0) return [];
+  const lower = maskHtml(text).toLowerCase();
+  const out = [];
+  PERCENT_TOKEN.lastIndex = 0;
+  let m;
+  while ((m = PERCENT_TOKEN.exec(lower)) !== null) {
+    const idx = m.index;
+    if (PERCENT_TOKEN.lastIndex === idx) PERCENT_TOKEN.lastIndex++;
+    const digits = m[0].replace(/\s*(?:%|percent)$/i, "");
+    out.push({ index: idx, matchedText: text.slice(idx, idx + m[0].length), isRateFigure: isRateFigure(lower, idx, m[0].length, digits) });
+  }
+  return out;
+}
 function scanRegZ(text, masked) {
   const lower = masked.toLowerCase();
   const out = [];
@@ -1257,6 +1272,7 @@ function hasLaneViolation(text, role, opts = {}) {
   NEGATION_CUES,
   RATE_CLAIM_CONFIG,
   checkCompliance,
+  classifyPercentFigures,
   hasHardBlock,
   hasLaneViolation,
   hasRateClaimViolation,

@@ -4,6 +4,7 @@ import {
   scanRateClaims,
   hasRateClaimViolation,
   RATE_CLAIM_CONFIG,
+  classifyPercentFigures,
 } from "../dist/index.js";
 
 const tokensOf = (text, opts) =>
@@ -288,5 +289,16 @@ describe("rate-claims — K-13: a rate noun governs the figure, or three decimal
     for (const t of ["the 30-year fixed is 5.5% right now", "a rate of 6.1% on a 30-year fixed", "rates at 6.4% right now", "30-yr is now 6.375%."]) {
       assert.equal(regz(t), 1, `must flag: ${t}`);
     }
+  });
+});
+
+describe("classifyPercentFigures — the K-13 primitive for consumers (v0.7.1)", () => {
+  it("labels each percent by whether a rate noun governs it, or three decimals", () => {
+    const r = classifyPercentFigures("Values are up 6% year over year, and a rate of 6% is common; the 30-year sits at 6.125%.");
+    assert.deepEqual(r.map((x) => [x.matchedText, x.isRateFigure]), [["6%", false], ["6%", true], ["6.125%", true]]);
+  });
+  it("returns [] on empty / non-string input", () => {
+    assert.deepEqual(classifyPercentFigures(""), []);
+    assert.deepEqual(classifyPercentFigures(undefined), []);
   });
 });
