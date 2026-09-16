@@ -247,7 +247,7 @@ purely additive.)
 
 ```bash
 npm install
-npm run build      # tsup → dist/ (ESM + CJS + d.ts) + emits the keyset (M7 + lanes)
+npm run compile      # tsup → dist/ (ESM + CJS + d.ts) + emits the keyset (M7 + lanes)
 npm test           # build + node --test (M7 + lane suites) + TS<->Python lane parity
 npm run typecheck
 npm run test:parity   # just the TS<->Python lane parity run (needs python3 on PATH)

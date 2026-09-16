@@ -87,7 +87,7 @@ class LaneParityCorpus(unittest.TestCase):
         if ts is None:
             self.skipTest(
                 "node or dist/index.js unavailable — Python-side unit tests below "
-                "still run; build the package (npm run build) to exercise parity."
+                "still run; build the package (npm run compile) to exercise parity."
             )
         self.assertEqual(len(ts), len(self.cases))
         for i, case in enumerate(self.cases):
