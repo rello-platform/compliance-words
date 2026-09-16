@@ -59,7 +59,8 @@ export {
 // flags a stated mortgage-rate FIGURE without a nearby APR (Reg Z §1026.24) and
 // an unsubstantiated rate self-comparison ("below market", "lowest rate", "40
 // bps below") (CFPB UDAAP). Defaults to WARNING; no gate calls it until Kelly
-// approves arming. Mirrors Milo's detectsRateFigure rate-vs-value distinction.
+// approves arming. K-13 (v0.7.0) decides rate-vs-not; `classifyPercentFigures`
+// (v0.7.1) exposes that primitive so a consumer can ground a percent by what it means.
 export {
   scanRateClaims,
   hasRateClaimViolation,
@@ -68,4 +69,6 @@ export {
   type RateClaimSeverity,
   type RateClaimOptions,
   type RateClaimViolation,
+  classifyPercentFigures,
+  type PercentFigure,
 } from "./rate-claims/scan.js";

@@ -271,6 +271,32 @@ function isRateFigure(masked: string, idx: number, len: number, digits: string):
   return rateNounGoverns(before, after);
 }
 
+/**
+ * K-13 as a primitive for consumers that must know WHAT a percent means before
+ * grounding it (Milo's validatePercentages, A3 2026-09-16): every percent token
+ * in `text` with whether a rate noun governs it (or it carries three decimals).
+ * HTML is masked first (offsets preserved). Pure; never throws.
+ */
+export interface PercentFigure {
+  readonly index: number
+  readonly matchedText: string
+  readonly isRateFigure: boolean
+}
+export function classifyPercentFigures(text: string): readonly PercentFigure[] {
+  if (typeof text !== "string" || text.length === 0) return []
+  const lower = maskHtml(text).toLowerCase()
+  const out: PercentFigure[] = []
+  PERCENT_TOKEN.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = PERCENT_TOKEN.exec(lower)) !== null) {
+    const idx = m.index
+    if (PERCENT_TOKEN.lastIndex === idx) PERCENT_TOKEN.lastIndex++
+    const digits = m[0].replace(/\s*(?:%|percent)$/i, "")
+    out.push({ index: idx, matchedText: text.slice(idx, idx + m[0].length), isRateFigure: isRateFigure(lower, idx, m[0].length, digits) })
+  }
+  return out
+}
+
 function scanRegZ(text: string, masked: string): Array<{ index: number; matchedText: string }> {
   const lower = masked.toLowerCase();
   const out: Array<{ index: number; matchedText: string }> = [];
