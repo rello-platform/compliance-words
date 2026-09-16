@@ -1,3 +1,4 @@
 node_modules/
 # dist/ — committed so git-based installs work without a build step (Guard-Kit §3)
 *.tsbuildinfo
+__pycache__/
