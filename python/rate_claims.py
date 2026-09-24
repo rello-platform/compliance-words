@@ -65,6 +65,20 @@ _RATE_BRIDGE = re.compile(
     re.IGNORECASE,
 )
 _WORD = re.compile(r"[a-z0-9][a-z0-9'.-]*", re.IGNORECASE)
+
+# A7 (2026-09-24): mirror of scan.ts RATE_PHRASE_MAX_WORDS / RATE_CONNECTIVE_RE.
+# Noun first, up to RATE_PHRASE_MAX_WORDS connectives, then the figure; any
+# other word breaks the phrase. Figure first keeps the K-13 one-word bridge.
+RATE_PHRASE_MAX_WORDS = 4
+_RATE_CONNECTIVE = re.compile(
+    r"^(?:has|have|had|being|will|would|could|can|may|might|should|currently|now|today|still|just|right|"
+    r"roughly|approximately|nearly|almost|sitting|running|trending|down|again|lately|recently|already|only)$",
+    re.IGNORECASE,
+)
+
+
+def _is_connective(word):
+    return bool(_RATE_BRIDGE.match(word) or _RATE_CONNECTIVE.match(word))
 _THREE_DECIMALS = re.compile(r"\.\d{3}$")
 
 
@@ -75,12 +89,15 @@ def _words(text):
 def _rate_noun_governs(before, after):
     pre = _words(before)
     post = _words(after)
-    p1 = pre[-1] if len(pre) >= 1 else None
-    p2 = pre[-2] if len(pre) >= 2 else None
-    if p1 and _RATE_NOUN.match(p1):
-        return True
-    if p1 and p2 and _RATE_BRIDGE.match(p1) and _RATE_NOUN.match(p2):
-        return True
+    bridged = 0
+    for word in reversed(pre):
+        if bridged > RATE_PHRASE_MAX_WORDS:
+            break
+        if _RATE_NOUN.match(word):
+            return True
+        if not _is_connective(word):
+            break
+        bridged += 1
     n1 = post[0] if len(post) >= 1 else None
     n2 = post[1] if len(post) >= 2 else None
     if n1 and _RATE_NOUN.match(n1):

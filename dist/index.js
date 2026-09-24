@@ -1001,16 +1001,22 @@ var CLAUSE_BOUNDARY_RE = /[.!?;:,\n]/;
 var RATE_NOUN_RE = /^(?:rates?|apr|fixed|\d{1,2}-?year)$/i;
 var RATE_BRIDGE_RE = /^(?:of|at|near|around|about|to|from|under|below|above|over|by|in|on|is|are|was|were|be|been|hit|hits|reached?|sits?|sitting|sat|hovers?|hovering|hovered|remains?|stays?|holds?|holding|held|averages?|averaged|averaging|drops?|dropped|fell|falls?|rose|rises?|climbed|climbs?|moved?|moves|starts?|starting)$/i;
 var WORD_RE = /[a-z0-9][a-z0-9'.-]*/gi;
+var RATE_PHRASE_MAX_WORDS = 4;
+var RATE_CONNECTIVE_RE = /^(?:has|have|had|being|will|would|could|can|may|might|should|currently|now|today|still|just|right|roughly|approximately|nearly|almost|sitting|running|trending|down|again|lately|recently|already|only)$/i;
+function isConnective(word) {
+  return RATE_BRIDGE_RE.test(word) || RATE_CONNECTIVE_RE.test(word);
+}
 function words(text) {
   return (text.match(WORD_RE) ?? []).map((w) => w.replace(/\.$/, ""));
 }
 function rateNounGoverns(before, after) {
   const pre = words(before);
   const post = words(after);
-  const p1 = pre[pre.length - 1];
-  const p2 = pre[pre.length - 2];
-  if (p1 && RATE_NOUN_RE.test(p1)) return true;
-  if (p1 && p2 && RATE_BRIDGE_RE.test(p1) && RATE_NOUN_RE.test(p2)) return true;
+  for (let i = pre.length - 1, bridged = 0; i >= 0 && bridged <= RATE_PHRASE_MAX_WORDS; i--) {
+    if (RATE_NOUN_RE.test(pre[i])) return true;
+    if (!isConnective(pre[i])) break;
+    bridged++;
+  }
   const n1 = post[0];
   const n2 = post[1];
   if (n1 && RATE_NOUN_RE.test(n1)) return true;

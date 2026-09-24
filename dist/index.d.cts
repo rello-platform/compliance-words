@@ -382,9 +382,11 @@ declare function hasLaneViolation(text: string, role: Role, opts?: ScanLaneOptio
  * "trigger term" that pulls in mandatory APR disclosure. The rule flags a
  * percentage that IS a rate figure when no "APR" token sits nearby. Which
  * percentages are rate figures is K-13 (Kelly's ruling, Rello #1327, applied
- * here 2026-09-16 as K-30): a RATE NOUN (rate / rates / APR / fixed / N-year)
- * governs the figure in the same clause with at most one preposition or verb
- * between, or the figure carries three decimals. Nothing else is a rate figure
+ * here 2026-09-16 as K-30; widened 2026-09-24 as A7): a RATE NOUN (rate /
+ * rates / APR / fixed / N-year) governs the figure in the same clause, either
+ * before it across up to four connective words ("rates are around 6.25%") or
+ * after it with at most one preposition or verb between, or the figure carries
+ * three decimals. Nothing else is a rate figure
  * — not a bare "6.12%", not a percent behind a preposition, not a percent with
  * a rate word elsewhere in the sentence. The pre-K-13 cue window (a rate cue
  * within 40 characters, minus value cues) is retired: it read "values up 2.4%
@@ -406,6 +408,8 @@ declare function hasLaneViolation(text: string, role: Role, opts?: ScanLaneOptio
  *   FLAGS:   "a rate of 6.125%" / "rates near 6%" / "rates at 6.4% right now"
  *            "a fixed 7 % loan" / "15-year at 6.25%" / "the 30-year fixed is 5.5%"
  *            "the 30-year is sitting at 6.990%" (three decimals)
+ *            "the 30-year fixed is sitting around 5.5%" / "rates are around
+ *            6.25%" (A7: noun, connectives, figure — released under K-13)
  *            "your new rate could be 5.5%" (PROSPECTIVE offer, not existing rate)
  *            "your rate will be 5.5%" / "your rate would be 5.5%" (FUTURE-TENSE
  *            quote = a prospective offer, not the lead's existing rate — v0.5.0)
@@ -414,9 +418,8 @@ declare function hasLaneViolation(text: string, role: Role, opts?: ScanLaneOptio
  *            "you're sitting on a 2.94% rate" / "your 6.5% rate alert"
  *            "prices are up 5% from last year" / "values up 2.4% year over year"
  *            "mortgage applications rose 5%" (mortgage is not a rate noun)
- *            "the 30-year fixed is sitting around 5.5%" — K-13 RELEASES: three
- *            words between the noun and a two-decimal figure (pinned in the
- *            tests so the release is visible; widen by measurement, not argument)
+ *            "I'm offering 6.1% on a 30-year fixed" — figure first, two words
+ *            to the noun: still released (A7 widened noun-first only; pinned)
  *            "rates have eased lately" (DIRECTIONAL — no figure)
  *
  * ── UDAAP rule (`udaap_rate_comparison`) ────────────────────────────────────
