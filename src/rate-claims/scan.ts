@@ -30,9 +30,11 @@
  * "trigger term" that pulls in mandatory APR disclosure. The rule flags a
  * percentage that IS a rate figure when no "APR" token sits nearby. Which
  * percentages are rate figures is K-13 (Kelly's ruling, Rello #1327, applied
- * here 2026-09-16 as K-30): a RATE NOUN (rate / rates / APR / fixed / N-year)
- * governs the figure in the same clause with at most one preposition or verb
- * between, or the figure carries three decimals. Nothing else is a rate figure
+ * here 2026-09-16 as K-30; widened 2026-09-24 as A7): a RATE NOUN (rate /
+ * rates / APR / fixed / N-year) governs the figure in the same clause, either
+ * before it across up to four connective words ("rates are around 6.25%") or
+ * after it with at most one preposition or verb between, or the figure carries
+ * three decimals. Nothing else is a rate figure
  * — not a bare "6.12%", not a percent behind a preposition, not a percent with
  * a rate word elsewhere in the sentence. The pre-K-13 cue window (a rate cue
  * within 40 characters, minus value cues) is retired: it read "values up 2.4%
@@ -54,6 +56,8 @@
  *   FLAGS:   "a rate of 6.125%" / "rates near 6%" / "rates at 6.4% right now"
  *            "a fixed 7 % loan" / "15-year at 6.25%" / "the 30-year fixed is 5.5%"
  *            "the 30-year is sitting at 6.990%" (three decimals)
+ *            "the 30-year fixed is sitting around 5.5%" / "rates are around
+ *            6.25%" (A7: noun, connectives, figure — released under K-13)
  *            "your new rate could be 5.5%" (PROSPECTIVE offer, not existing rate)
  *            "your rate will be 5.5%" / "your rate would be 5.5%" (FUTURE-TENSE
  *            quote = a prospective offer, not the lead's existing rate — v0.5.0)
@@ -62,9 +66,8 @@
  *            "you're sitting on a 2.94% rate" / "your 6.5% rate alert"
  *            "prices are up 5% from last year" / "values up 2.4% year over year"
  *            "mortgage applications rose 5%" (mortgage is not a rate noun)
- *            "the 30-year fixed is sitting around 5.5%" — K-13 RELEASES: three
- *            words between the noun and a two-decimal figure (pinned in the
- *            tests so the release is visible; widen by measurement, not argument)
+ *            "I'm offering 6.1% on a 30-year fixed" — figure first, two words
+ *            to the noun: still released (A7 widened noun-first only; pinned)
  *            "rates have eased lately" (DIRECTIONAL — no figure)
  *
  * ── UDAAP rule (`udaap_rate_comparison`) ────────────────────────────────────
@@ -215,12 +218,14 @@ export const OWN_RATE_WINDOW = WINDOW;
 // template. The window is gone. A percent is a rate figure only when
 //   - a RATE NOUN — rate, rates, APR, fixed, N-year — sits immediately before
 //     or after the figure with at most ONE preposition or verb between, in the
-//     same clause (. ! ? ; : , or a line break ends it); or
+//     same clause (. ! ? ; : , or a line break ends it); since A7 (below) a
+//     noun BEFORE the figure may sit up to four connective words away; or
 //   - the figure carries three decimals ("6.990%").
 // A preposition never anchors ("at 20% down", "sits at 3% above" release); a
 // rate word elsewhere in the clause does not ("mortgage applications rose 5%",
 // "values up 2.4% year over year near the mortgage" release). The same regexes
-// as Rello's send-time `containsRateClaim` — one rule, two homes, byte-equal.
+// as Rello's send-time `containsRateClaim` — one rule, two homes, byte-equal
+// until A7: Rello's copy keeps the one-word window until its consumer unit.
 // The APR-present and lead-owned-rate escapes below still apply to a figure
 // the rule classifies as a rate.
 const CLAUSE_BOUNDARY_RE = /[.!?;:,\n]/;
@@ -231,19 +236,47 @@ const RATE_BRIDGE_RE =
   /^(?:of|at|near|around|about|to|from|under|below|above|over|by|in|on|is|are|was|were|be|been|hit|hits|reached?|sits?|sitting|sat|hovers?|hovering|hovered|remains?|stays?|holds?|holding|held|averages?|averaged|averaging|drops?|dropped|fell|falls?|rose|rises?|climbed|climbs?|moved?|moves|starts?|starting)$/i;
 const WORD_RE = /[a-z0-9][a-z0-9'.-]*/gi;
 
+// ── A7 (2026-09-24): the noun-first direction governs across a bounded phrase.
+// K-13 allowed one bridge word, so "Rates are around 6.25%" and "the average
+// 30-year rate sits near 6.3%" were not rate figures: they skipped the Reg-Z
+// check, and Milo's A3 grounding accepted them as market values. A rate noun
+// now governs a figure that follows it when EVERY word between them is a
+// connective (a bridge word above, an auxiliary, or a time/approximation
+// adverb) and there are at most RATE_PHRASE_MAX_WORDS of them. A noun in
+// between ("rate cuts lifted sales 5%", "fixed costs rose 3%") still breaks the
+// phrase, so the K-13/K-30 market releases hold. Measured on 2,624 ClearPath
+// bodies (30 days, EmailBody + Milo final outputs, 2026-09-24): all 15 distinct
+// rate sentences sat 3–6 words after the noun; 13 of 15 within 4. The two past
+// 4 put a relative clause in between ("the 30-year fixed I'm quoting right now
+// is") and carried three decimals, which catches them anyway.
+// The figure-first direction ("6.1% on a 30-year fixed") keeps the one-word
+// K-13 bridge: widening it reads "3.5% on a 30-year loan", a down payment.
+/** Most connective words allowed between a rate noun and the figure after it. */
+export const RATE_PHRASE_MAX_WORDS = 4;
+/** Words that may sit between a rate noun and its figure: the K-13 bridge words plus auxiliaries and time/approximation adverbs. No nouns, no articles. */
+const RATE_CONNECTIVE_RE =
+  /^(?:has|have|had|being|will|would|could|can|may|might|should|currently|now|today|still|just|right|roughly|approximately|nearly|almost|sitting|running|trending|down|again|lately|recently|already|only)$/i;
+
+function isConnective(word: string): boolean {
+  return RATE_BRIDGE_RE.test(word) || RATE_CONNECTIVE_RE.test(word);
+}
+
 /** The words of `text` in order, dropping a trailing period (so "6.5%." tokenises cleanly). */
 function words(text: string): string[] {
   return (text.match(WORD_RE) ?? []).map((w) => w.replace(/\.$/, ""));
 }
 
-/** True when a rate noun governs the figure that sits between `before` and `after` within one clause. */
+/** True when a rate noun governs the figure that sits between `before` and `after` within one clause (A7 phrase before it, K-13 one-word bridge after it). */
 function rateNounGoverns(before: string, after: string): boolean {
   const pre = words(before);
   const post = words(after);
-  const p1 = pre[pre.length - 1];
-  const p2 = pre[pre.length - 2];
-  if (p1 && RATE_NOUN_RE.test(p1)) return true;
-  if (p1 && p2 && RATE_BRIDGE_RE.test(p1) && RATE_NOUN_RE.test(p2)) return true;
+  // Noun first: walk back over at most RATE_PHRASE_MAX_WORDS connectives to a rate noun.
+  for (let i = pre.length - 1, bridged = 0; i >= 0 && bridged <= RATE_PHRASE_MAX_WORDS; i--) {
+    if (RATE_NOUN_RE.test(pre[i])) return true;
+    if (!isConnective(pre[i])) break;
+    bridged++;
+  }
+  // Figure first: the K-13 rule, one bridge word at most.
   const n1 = post[0];
   const n2 = post[1];
   if (n1 && RATE_NOUN_RE.test(n1)) return true;

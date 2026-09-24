@@ -186,8 +186,18 @@ class RateClaimBehavior(unittest.TestCase):
         self.assertNotIn("regz_rate_figure_no_apr", self._tokens("6.99% APR"))
         for t in ["values are up about 2.4%", "up around 2.4%", "mortgage applications rose 5%",
                   "Values across Sandy are up 2.4% year over year (Zillow home-value index, as of July 2026), even as mortgage rates hold steady.",
-                  # K-13 RELEASES (pinned, visible): two or more words between the noun and a two-decimal figure
-                  "the 30-year fixed is sitting around 5.5% right now", "Rates are at 6.4% right now.", "Your new rate could be 5.5%."]:
+                  # A7 still releases: figure-first beyond one word, and "30-yr" is not a rate noun
+                  "I'm offering 6.1% on a 30-year fixed.", "30-yr is now 6.4%."]:
+            self.assertNotIn("regz_rate_figure_no_apr", self._tokens(t), t)
+
+    def test_a7_bounded_connective_phrase(self):
+        # A7 (2026-09-24): noun, up to RATE_PHRASE_MAX_WORDS connectives, figure.
+        for t in ["Rates are around 6.25% right now.", "the 30-year fixed is sitting around 5.5% right now",
+                  "Rates are at 6.4% right now.", "Your new rate could be 5.5%.",
+                  "Rates have been hovering around 6.5% this month."]:
+            self.assertIn("regz_rate_figure_no_apr", self._tokens(t), t)
+        for t in ["Rate cuts lifted sales 5% last quarter.", "Fixed costs rose 3% this year.",
+                  "Rates have still been hovering around 6.5% lately."]:
             self.assertNotIn("regz_rate_figure_no_apr", self._tokens(t), t)
 
     def test_degenerate_input(self):
