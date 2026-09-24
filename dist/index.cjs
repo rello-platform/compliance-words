@@ -1050,6 +1050,20 @@ var RATE_CONNECTIVE_RE = /^(?:has|have|had|being|will|would|could|can|may|might|
 function isConnective(word) {
   return RATE_BRIDGE_RE.test(word) || RATE_CONNECTIVE_RE.test(word);
 }
+var RATE_MOVEMENT_RE = /^(?:ris(?:e|es|en|ing)|rose|fall(?:s|en|ing)?|fell|drop(?:s|ped|ping)?|down|up|lift(?:s|ed|ing)?|cut(?:s|ting)?|climb(?:s|ed|ing)?|slip(?:s|ped|ping)?|eas(?:e|es|ed|ing))$/i;
+var RATE_LEVEL_RE = /^(?:to|at|from|is|are|was|were|be|been|sits?|sat|sitting|near|around|hovers?|hovered|hovering|holds?|holding|held|stays?|stayed|remains?|remained|averages?|averaged|averaging)$/i;
+var NUMBER_RE = /^\d{1,2}(?:\.\d{1,3})?$/;
+function isMovementBridge(bridge) {
+  let last = -1;
+  for (let i = bridge.length - 1; i >= 0; i--) {
+    if (RATE_MOVEMENT_RE.test(bridge[i])) {
+      last = i;
+      break;
+    }
+  }
+  if (last < 0) return false;
+  return !bridge.slice(last + 1).some((w) => RATE_LEVEL_RE.test(w));
+}
 function words(text) {
   return (text.match(WORD_RE) ?? []).map((w) => w.replace(/\.$/, ""));
 }
@@ -1057,8 +1071,12 @@ function rateNounGoverns(before, after) {
   const pre = words(before);
   const post = words(after);
   for (let i = pre.length - 1, bridged = 0; i >= 0 && bridged <= RATE_PHRASE_MAX_WORDS; i--) {
-    if (RATE_NOUN_RE.test(pre[i])) return true;
-    if (!isConnective(pre[i])) break;
+    if (RATE_NOUN_RE.test(pre[i])) {
+      if (isMovementBridge(pre.slice(i + 1))) break;
+      return true;
+    }
+    const numberBeforeTo = NUMBER_RE.test(pre[i]) && pre[i + 1]?.toLowerCase() === "to";
+    if (!isConnective(pre[i]) && !numberBeforeTo) break;
     bridged++;
   }
   const n1 = post[0];
@@ -1067,17 +1085,22 @@ function rateNounGoverns(before, after) {
   if (n1 && n2 && RATE_BRIDGE_RE.test(n1) && RATE_NOUN_RE.test(n2)) return true;
   return false;
 }
+function isClauseBoundaryAt(text, i) {
+  if (!CLAUSE_BOUNDARY_RE.test(text[i])) return false;
+  if ((text[i] === "." || text[i] === ",") && /\d/.test(text[i - 1] ?? "") && /\d/.test(text[i + 1] ?? "")) return false;
+  return true;
+}
 function clauseAround(text, from, to) {
   let start = 0;
   for (let i = from - 1; i >= 0; i--) {
-    if (CLAUSE_BOUNDARY_RE.test(text[i])) {
+    if (isClauseBoundaryAt(text, i)) {
       start = i + 1;
       break;
     }
   }
   let end = text.length;
   for (let i = to; i < text.length; i++) {
-    if (CLAUSE_BOUNDARY_RE.test(text[i])) {
+    if (isClauseBoundaryAt(text, i)) {
       end = i;
       break;
     }

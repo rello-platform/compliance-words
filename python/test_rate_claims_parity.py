@@ -200,6 +200,17 @@ class RateClaimBehavior(unittest.TestCase):
                   "Rates have still been hovering around 6.5% lately."]:
             self.assertNotIn("regz_rate_figure_no_apr", self._tokens(t), t)
 
+    def test_d70_movement_is_not_a_rate(self):
+        # D-70 (A-178): a movement verb with no level word after it is a delta.
+        for t in ["Rates are down 3%", "Rates have dropped roughly 0.5%", "Rates fell 3%",
+                  "The 15-year fell by 0.3%.", "Rates are down about 0.5% from last month."]:
+            self.assertNotIn("regz_rate_figure_no_apr", self._tokens(t), t)
+        for t in ["Rates fell to 6.1%", "Rates are down to 6.1%.", "the 30-year is 6.3% today",
+                  "Your new rate could be 5.9%", "Rates rose 0.125% this week.", "Rates sit near 6.4% after the dip."]:
+            self.assertIn("regz_rate_figure_no_apr", self._tokens(t), t)
+        # the delta releases, the level after it is kept
+        self.assertEqual(len([v for v in scan_rate_claims("Rates are down 0.5% to 6.1%.") if v["token"] == "regz_rate_figure_no_apr"]), 1)
+
     def test_degenerate_input(self):
         self.assertEqual(scan_rate_claims(""), [])
         self.assertEqual(scan_rate_claims(None), [])
