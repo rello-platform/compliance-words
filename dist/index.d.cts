@@ -421,6 +421,8 @@ declare function hasLaneViolation(text: string, role: Role, opts?: ScanLaneOptio
  *            "I'm offering 6.1% on a 30-year fixed" — figure first, two words
  *            to the noun: still released (A7 widened noun-first only; pinned)
  *            "rates have eased lately" (DIRECTIONAL — no figure)
+ *            "rates are down 3%" / "rates fell 3%" (D-70: a MOVEMENT, not a
+ *            level — "fell to 6.1%" / "down 0.5% to 6.1%" keep the level)
  *
  * ── UDAAP rule (`udaap_rate_comparison`) ────────────────────────────────────
  * CFPB UDAAP — an unsubstantiated rate self-comparison ("below market", "lower

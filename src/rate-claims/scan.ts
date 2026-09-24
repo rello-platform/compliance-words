@@ -69,6 +69,8 @@
  *            "I'm offering 6.1% on a 30-year fixed" — figure first, two words
  *            to the noun: still released (A7 widened noun-first only; pinned)
  *            "rates have eased lately" (DIRECTIONAL — no figure)
+ *            "rates are down 3%" / "rates fell 3%" (D-70: a MOVEMENT, not a
+ *            level — "fell to 6.1%" / "down 0.5% to 6.1%" keep the level)
  *
  * ── UDAAP rule (`udaap_rate_comparison`) ────────────────────────────────────
  * CFPB UDAAP — an unsubstantiated rate self-comparison ("below market", "lower
@@ -261,6 +263,34 @@ function isConnective(word: string): boolean {
   return RATE_BRIDGE_RE.test(word) || RATE_CONNECTIVE_RE.test(word);
 }
 
+// ── D-70 (2026-09-24, auditor row A-178): a rate MOVEMENT is not a rate figure.
+// A percentage governed by a movement verb is a delta or a market statement,
+// not an advertised rate ("Rates are down 3%", "Rates fell 3%", "Rates have
+// dropped roughly 0.5%"), UNLESS it is stated as a LEVEL ("fell to 6.1%",
+// "down to 6.1%", "is 6.1%", "sits near 6.1%") or carries three decimals
+// (checked first, in isRateFigure). The K-30 class (YoY deltas), generalised
+// from "year over year" to the verb. Reading: in the noun-first phrase, find
+// the LAST movement verb before the figure; if no level word follows it, the
+// figure is a delta and the noun does not govern it. "Rates are down 0.5% to
+// 6.1%": 0.5% is the delta, 6.1% the level. A prior figure followed by "to"
+// ("0.5% to", "from 7% to") bridges, so the level after it is still read.
+const RATE_MOVEMENT_RE =
+  /^(?:ris(?:e|es|en|ing)|rose|fall(?:s|en|ing)?|fell|drop(?:s|ped|ping)?|down|up|lift(?:s|ed|ing)?|cut(?:s|ting)?|climb(?:s|ed|ing)?|slip(?:s|ped|ping)?|eas(?:e|es|ed|ing))$/i;
+/** Words that, after a movement verb, state where the rate IS rather than how far it moved. */
+const RATE_LEVEL_RE =
+  /^(?:to|at|from|is|are|was|were|be|been|sits?|sat|sitting|near|around|hovers?|hovered|hovering|holds?|holding|held|stays?|stayed|remains?|remained|averages?|averaged|averaging)$/i;
+const NUMBER_RE = /^\d{1,2}(?:\.\d{1,3})?$/;
+
+/** D-70: does this noun-first bridge (words between the noun and the figure) describe a movement, not a level? */
+function isMovementBridge(bridge: readonly string[]): boolean {
+  let last = -1;
+  for (let i = bridge.length - 1; i >= 0; i--) {
+    if (RATE_MOVEMENT_RE.test(bridge[i])) { last = i; break; }
+  }
+  if (last < 0) return false;
+  return !bridge.slice(last + 1).some((w) => RATE_LEVEL_RE.test(w));
+}
+
 /** The words of `text` in order, dropping a trailing period (so "6.5%." tokenises cleanly). */
 function words(text: string): string[] {
   return (text.match(WORD_RE) ?? []).map((w) => w.replace(/\.$/, ""));
@@ -270,10 +300,16 @@ function words(text: string): string[] {
 function rateNounGoverns(before: string, after: string): boolean {
   const pre = words(before);
   const post = words(after);
-  // Noun first: walk back over at most RATE_PHRASE_MAX_WORDS connectives to a rate noun.
+  // Noun first: walk back over at most RATE_PHRASE_MAX_WORDS connectives to a
+  // rate noun. A prior figure followed by "to" bridges ("down 0.5% to 6.1%").
+  // D-70: a noun whose phrase is a movement does not govern the figure.
   for (let i = pre.length - 1, bridged = 0; i >= 0 && bridged <= RATE_PHRASE_MAX_WORDS; i--) {
-    if (RATE_NOUN_RE.test(pre[i])) return true;
-    if (!isConnective(pre[i])) break;
+    if (RATE_NOUN_RE.test(pre[i])) {
+      if (isMovementBridge(pre.slice(i + 1))) break;
+      return true;
+    }
+    const numberBeforeTo = NUMBER_RE.test(pre[i]) && pre[i + 1]?.toLowerCase() === "to";
+    if (!isConnective(pre[i]) && !numberBeforeTo) break;
     bridged++;
   }
   // Figure first: the K-13 rule, one bridge word at most.
@@ -285,14 +321,21 @@ function rateNounGoverns(before: string, after: string): boolean {
 }
 
 /** The clause containing [from, to): text between the nearest clause boundaries. */
+/** A clause boundary at `i` — except a decimal point or thousands comma between digits ("0.5%", "1,200"), which ends nothing. D-70. */
+function isClauseBoundaryAt(text: string, i: number): boolean {
+  if (!CLAUSE_BOUNDARY_RE.test(text[i])) return false;
+  if ((text[i] === "." || text[i] === ",") && /\d/.test(text[i - 1] ?? "") && /\d/.test(text[i + 1] ?? "")) return false;
+  return true;
+}
+
 function clauseAround(text: string, from: number, to: number): { before: string; after: string } {
   let start = 0;
   for (let i = from - 1; i >= 0; i--) {
-    if (CLAUSE_BOUNDARY_RE.test(text[i])) { start = i + 1; break; }
+    if (isClauseBoundaryAt(text, i)) { start = i + 1; break; }
   }
   let end = text.length;
   for (let i = to; i < text.length; i++) {
-    if (CLAUSE_BOUNDARY_RE.test(text[i])) { end = i; break; }
+    if (isClauseBoundaryAt(text, i)) { end = i; break; }
   }
   return { before: text.slice(start, from), after: text.slice(to, end) };
 }

@@ -79,6 +79,33 @@ _RATE_CONNECTIVE = re.compile(
 
 def _is_connective(word):
     return bool(_RATE_BRIDGE.match(word) or _RATE_CONNECTIVE.match(word))
+
+
+# D-70 (2026-09-24, A-178): mirror of scan.ts RATE_MOVEMENT_RE / RATE_LEVEL_RE /
+# isMovementBridge. A movement verb with no level word after it makes the
+# figure a delta, not a rate; three decimals still win (checked first).
+_RATE_MOVEMENT = re.compile(
+    r"^(?:ris(?:e|es|en|ing)|rose|fall(?:s|en|ing)?|fell|drop(?:s|ped|ping)?|down|up|lift(?:s|ed|ing)?|"
+    r"cut(?:s|ting)?|climb(?:s|ed|ing)?|slip(?:s|ped|ping)?|eas(?:e|es|ed|ing))$",
+    re.IGNORECASE,
+)
+_RATE_LEVEL = re.compile(
+    r"^(?:to|at|from|is|are|was|were|be|been|sits?|sat|sitting|near|around|hovers?|hovered|hovering|"
+    r"holds?|holding|held|stays?|stayed|remains?|remained|averages?|averaged|averaging)$",
+    re.IGNORECASE,
+)
+_NUMBER = re.compile(r"^\d{1,2}(?:\.\d{1,3})?$")
+
+
+def _is_movement_bridge(bridge):
+    last = -1
+    for i in range(len(bridge) - 1, -1, -1):
+        if _RATE_MOVEMENT.match(bridge[i]):
+            last = i
+            break
+    if last < 0:
+        return False
+    return not any(_RATE_LEVEL.match(w) for w in bridge[last + 1:])
 _THREE_DECIMALS = re.compile(r"\.\d{3}$")
 
 
@@ -90,12 +117,16 @@ def _rate_noun_governs(before, after):
     pre = _words(before)
     post = _words(after)
     bridged = 0
-    for word in reversed(pre):
+    for i in range(len(pre) - 1, -1, -1):
         if bridged > RATE_PHRASE_MAX_WORDS:
             break
+        word = pre[i]
         if _RATE_NOUN.match(word):
+            if _is_movement_bridge(pre[i + 1:]):
+                break
             return True
-        if not _is_connective(word):
+        number_before_to = bool(_NUMBER.match(word)) and i + 1 < len(pre) and pre[i + 1].lower() == "to"
+        if not _is_connective(word) and not number_before_to:
             break
         bridged += 1
     n1 = post[0] if len(post) >= 1 else None
@@ -107,15 +138,24 @@ def _rate_noun_governs(before, after):
     return False
 
 
+def _is_clause_boundary_at(text, i):
+    # D-70: a decimal point or thousands comma between digits ends nothing.
+    if not _CLAUSE_BOUNDARY.match(text[i]):
+        return False
+    if text[i] in ".," and 0 < i < len(text) - 1 and text[i - 1] in "0123456789" and text[i + 1] in "0123456789":
+        return False
+    return True
+
+
 def _clause_around(text, start_idx, end_idx):
     start = 0
     for i in range(start_idx - 1, -1, -1):
-        if _CLAUSE_BOUNDARY.match(text[i]):
+        if _is_clause_boundary_at(text, i):
             start = i + 1
             break
     end = len(text)
     for i in range(end_idx, len(text)):
-        if _CLAUSE_BOUNDARY.match(text[i]):
+        if _is_clause_boundary_at(text, i):
             end = i
             break
     return text[start:start_idx], text[end_idx:end]

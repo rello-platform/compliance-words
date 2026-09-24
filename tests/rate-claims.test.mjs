@@ -398,3 +398,59 @@ describe("rate-claims — A7: a rate noun governs the figure across a bounded co
     assert.equal(regz("3.5% on a 30-year loan"), 0);
   });
 });
+
+// ── D-70 (2026-09-24, auditor row A-178): a rate MOVEMENT is not a rate figure ─
+// A percentage governed by a movement verb (rose, fell, dropped, down, up,
+// lifted, cut, climbed, slipped, eased) is a delta or a market statement, not
+// an advertised rate, UNLESS it is stated as a level ("to 6.1%", "at 6.1%",
+// "is/are 6.1%", "sits near 6.1%") or carries three decimals. The K-30 class
+// (YoY deltas) generalised from "year over year" to the verb. A level is still
+// a rate, so disclosure is preserved.
+describe("rate-claims — D-70: a rate movement is not a rate figure; a level still is", () => {
+  const regz = (t) => tokensOf(t).filter((x) => x === "regz_rate_figure_no_apr").length;
+  const figures = (t) => classifyPercentFigures(t).map((f) => [f.matchedText, f.isRateFigure]);
+
+  it("movements are released", () => {
+    for (const t of [
+      "Rates are down 3%",
+      "Rates have dropped roughly 0.5%",
+      "Rates fell 3%",
+      "Rates rose 0.25% this week.",
+      "The 30-year fixed dropped about 0.4% since June.",
+      "Rates are down about 0.5% from last month.",
+      "Rates climbed 0.2% after the Fed meeting.",
+      "The 15-year fell by 0.3%.",
+      "Rates are down almost 1% since spring.",
+    ]) {
+      assert.equal(regz(t), 0, `movement must release: ${t}`);
+    }
+  });
+
+  it("levels are kept, including the two traps", () => {
+    for (const t of [
+      "Rates fell to 6.1%",
+      "the 30-year is 6.3% today",
+      "Your new rate could be 5.9%",
+      "Rates are down to 6.1%.",
+      "The 30-year fixed fell to around 6.25% this week.",
+      "Rates sit near 6.4% after the dip.",
+      "We could get your rate down to 5.5%.",
+      "Rates have been hovering around 6.5% this month.",
+    ]) {
+      assert.equal(regz(t), 1, `level must stay a rate: ${t}`);
+    }
+    // Three decimals: a rate, whatever verb governs it.
+    assert.equal(regz("rates are at 6.125%"), 1);
+    assert.equal(regz("Rates rose 0.125% this week."), 1);
+  });
+
+  it("a delta and a level in one phrase: the delta releases, the level is kept", () => {
+    assert.deepEqual(figures("Rates are down 0.5% to 6.1%."), [["0.5%", false], ["6.1%", true]]);
+    assert.deepEqual(figures("Rates dropped from 7% to 6.1%."), [["7%", true], ["6.1%", true]]);
+  });
+
+  it("the NS-pinned sentences were never package rates (A7 already releases them)", () => {
+    assert.deepEqual(figures("Rate cuts lifted sales 5% last quarter."), [["5%", false]]);
+    assert.deepEqual(figures("Fixed costs rose 3% this year."), [["3%", false]]);
+  });
+});
