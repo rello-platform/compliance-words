@@ -155,8 +155,9 @@ function withinAnyRange(
 
 // ── REG-Z numeric primitives ─────────────────────────────────────────────────
 //
-// A percentage-shaped token: "6", "6.1", "6.125" followed by % or "percent".
-const PERCENT_TOKEN = /\b\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent\b)/gi;
+// A percentage-shaped token: "6", "6.1", "6.125", "6.1250" followed by % or "percent".
+// Ruling 283: any number of decimals (it was 1–3, so "6.1250%" was never a token).
+const PERCENT_TOKEN = /\b\d{1,2}(?:\.\d+)?\s*(?:%|percent\b)/gi;
 
 // Window (chars) scanned on each side of a RATE figure for the APR / own-rate escapes.
 const WINDOW = 40;
@@ -189,7 +190,7 @@ const APR_PRESENT = /\bapr\b|\ba\.p\.r\.|\bannual percentage rate\b/i;
 // two scanners must never drift two divergent own-rate definitions. The Python
 // halves (python/rate_claims.py + python/lane_checker.py) mirror this verbatim.
 export const OWN_RATE_CUES =
-  /\byour\s+(?:current\s+|existing\s+|locked(?:[\s-]?in)?\s+)?rate\b|\btheir\s+(?:current\s+|existing\s+)?rate\b|\brate\s+alert\b|\byou(?:'re|\s+are)\s+sitting\s+on\b|\byour\s+\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent)\s+rate\b|\bthe\s+rate\s+you(?:'?ve|'?re|\s+(?:have|had|locked|got|are))\b/i;
+  /\byour\s+(?:current\s+|existing\s+|locked(?:[\s-]?in)?\s+)?rate\b|\btheir\s+(?:current\s+|existing\s+)?rate\b|\brate\s+alert\b|\byou(?:'re|\s+are)\s+sitting\s+on\b|\byour\s+\d{1,2}(?:\.\d+)?\s*(?:%|percent)\s+rate\b|\bthe\s+rate\s+you(?:'?ve|'?re|\s+(?:have|had|locked|got|are))\b/i;
 
 // OFFER GUARD — a PROSPECTIVE / advertised-offer framing. Even when a possessive
 // "your … rate" cue is present, these turn the figure back into an advertised
@@ -279,7 +280,7 @@ const RATE_MOVEMENT_RE =
 /** Words that, after a movement verb, state where the rate IS rather than how far it moved. */
 const RATE_LEVEL_RE =
   /^(?:to|at|from|is|are|was|were|be|been|sits?|sat|sitting|near|around|hovers?|hovered|hovering|holds?|holding|held|stays?|stayed|remains?|remained|averages?|averaged|averaging)$/i;
-const NUMBER_RE = /^\d{1,2}(?:\.\d{1,3})?$/;
+const NUMBER_RE = /^\d{1,2}(?:\.\d+)?$/;
 
 /** D-70: does this noun-first bridge (words between the noun and the figure) describe a movement, not a level? */
 function isMovementBridge(bridge: readonly string[]): boolean {
@@ -342,7 +343,8 @@ function clauseAround(text: string, from: number, to: number): { before: string;
 
 /** K-13: is the percent token at [idx, idx+len) of `masked` a RATE figure? */
 function isRateFigure(masked: string, idx: number, len: number, digits: string): boolean {
-  if (/\.\d{3}$/.test(digits)) return true;
+  // Three decimals or more (ruling 283: four-decimal figures are tokens now).
+  if (/\.\d{3,}$/.test(digits)) return true;
   const { before, after } = clauseAround(masked, idx, idx + len);
   return rateNounGoverns(before, after);
 }

@@ -481,8 +481,29 @@ function compileMatcher(entry) {
     hasDisclaimer: entry.allowedContexts.some((c) => c.kind === "disclaimer-banner")
   };
 }
+var HTML_TAG_RE = /<[^>]*>/g;
+var HTML_ENTITY_RE = /&(?:#x([0-9a-f]+)|#([0-9]+)|([a-z]+));/gi;
+var NAMED_ENTITY_CHAR = {
+  nbsp: " ",
+  ensp: " ",
+  emsp: " ",
+  thinsp: " ",
+  amp: "&",
+  percnt: "%"
+};
+function numericEntityChar(codePoint) {
+  if (codePoint === 38) return "&";
+  if (codePoint === 37) return "%";
+  if (codePoint === 32 || codePoint === 160 || codePoint >= 8194 && codePoint <= 8202 || codePoint === 8239) {
+    return " ";
+  }
+  return void 0;
+}
 function maskHtml(text) {
-  return text.replace(/<[^>]*>/g, (m) => " ".repeat(m.length));
+  return text.replace(HTML_TAG_RE, (m) => " ".repeat(m.length)).replace(HTML_ENTITY_RE, (m, hex, dec, name) => {
+    const ch = name !== void 0 ? NAMED_ENTITY_CHAR[name.toLowerCase()] : numericEntityChar(hex !== void 0 ? parseInt(hex, 16) : parseInt(dec, 10));
+    return ch === void 0 ? m : " ".repeat(m.length - 1) + ch;
+  });
 }
 function indexWords(masked) {
   const words2 = [];
@@ -1035,10 +1056,10 @@ function withinAnyRange2(offset, ranges) {
   if (!ranges) return false;
   return ranges.some(([start, end]) => offset >= start && offset < end);
 }
-var PERCENT_TOKEN = /\b\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent\b)/gi;
+var PERCENT_TOKEN = /\b\d{1,2}(?:\.\d+)?\s*(?:%|percent\b)/gi;
 var WINDOW = 40;
 var APR_PRESENT = /\bapr\b|\ba\.p\.r\.|\bannual percentage rate\b/i;
-var OWN_RATE_CUES = /\byour\s+(?:current\s+|existing\s+|locked(?:[\s-]?in)?\s+)?rate\b|\btheir\s+(?:current\s+|existing\s+)?rate\b|\brate\s+alert\b|\byou(?:'re|\s+are)\s+sitting\s+on\b|\byour\s+\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent)\s+rate\b|\bthe\s+rate\s+you(?:'?ve|'?re|\s+(?:have|had|locked|got|are))\b/i;
+var OWN_RATE_CUES = /\byour\s+(?:current\s+|existing\s+|locked(?:[\s-]?in)?\s+)?rate\b|\btheir\s+(?:current\s+|existing\s+)?rate\b|\brate\s+alert\b|\byou(?:'re|\s+are)\s+sitting\s+on\b|\byour\s+\d{1,2}(?:\.\d+)?\s*(?:%|percent)\s+rate\b|\bthe\s+rate\s+you(?:'?ve|'?re|\s+(?:have|had|locked|got|are))\b/i;
 var OFFER_CUES = /\bnew\s+rate\b|\bcould\s+(?:be|get|drop|go|lock|save|qualify)\b|\byou\s+could\b|\bwe\s+could\b|\brefi(?:nance)?\b|\bget\s+you\b|\bqualify\s+for\b|\bdown\s+to\b|\bas\s+low\s+as\b|\block\s+you\s+in\b|\bwe\s+can\s+(?:get|offer|lock)\b|\bwill\s+be\b|\bwould\s+be\b/i;
 var OWN_RATE_WINDOW = WINDOW;
 var CLAUSE_BOUNDARY_RE = /[.!?;:,\n]/;
@@ -1052,7 +1073,7 @@ function isConnective(word) {
 }
 var RATE_MOVEMENT_RE = /^(?:ris(?:e|es|en|ing)|rose|fall(?:s|en|ing)?|fell|drop(?:s|ped|ping)?|down|up|lift(?:s|ed|ing)?|cut(?:s|ting)?|climb(?:s|ed|ing)?|slip(?:s|ped|ping)?|eas(?:e|es|ed|ing))$/i;
 var RATE_LEVEL_RE = /^(?:to|at|from|is|are|was|were|be|been|sits?|sat|sitting|near|around|hovers?|hovered|hovering|holds?|holding|held|stays?|stayed|remains?|remained|averages?|averaged|averaging)$/i;
-var NUMBER_RE = /^\d{1,2}(?:\.\d{1,3})?$/;
+var NUMBER_RE = /^\d{1,2}(?:\.\d+)?$/;
 function isMovementBridge(bridge) {
   let last = -1;
   for (let i = bridge.length - 1; i >= 0; i--) {
@@ -1108,7 +1129,7 @@ function clauseAround(text, from, to) {
   return { before: text.slice(start, from), after: text.slice(to, end) };
 }
 function isRateFigure(masked, idx, len, digits) {
-  if (/\.\d{3}$/.test(digits)) return true;
+  if (/\.\d{3,}$/.test(digits)) return true;
   const { before, after } = clauseAround(masked, idx, idx + len);
   return rateNounGoverns(before, after);
 }

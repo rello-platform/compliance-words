@@ -454,3 +454,87 @@ describe("rate-claims — D-70: a rate movement is not a rate figure; a level st
     assert.deepEqual(figures("Fixed costs rose 3% this year."), [["3%", false]]);
   });
 });
+
+// ── Ruling 283 (2026-10-18, LA25-36): an HTML entity reads as the character it renders ──
+// `maskHtml` blanked tags but left entities, and the `;` of `&nbsp;` is a clause
+// boundary, so "the 30-year fixed at&nbsp;6.25%" was not a rate figure: the noun
+// was cut off from its figure by a character no reader sees. Rello's local copy
+// replaced `&nbsp;` with a space before scanning; #613 moved Rello onto the
+// package, and Milo has read the package since v0.9.1. The entity is now decoded
+// in the same offset-preserving step that blanks tags. Same release: a figure
+// with four or more decimals ("6.1250%") is a percent token, and it counts as
+// carrying three decimals.
+describe("rate-claims — ruling 283: HTML entities decode in place; four-decimal figures are figures", () => {
+  const figures = (t) => classifyPercentFigures(t).map((f) => [f.index, f.matchedText, f.isRateFigure]);
+  const regz = (t) => tokensOf(t).filter((x) => x === "regz_rate_figure_no_apr").length;
+
+  it("the auditor's &nbsp; cases (la25-b8-rate-diff.test.ts) are rate figures", () => {
+    for (const t of ["the 30-year fixed at&nbsp;6.25%", "rate of&nbsp;6.5%", "6.5%&nbsp;APR on a 30-year fixed"]) {
+      assert.equal(classifyPercentFigures(t).some((f) => f.isRateFigure), true, t);
+    }
+    // Control: three decimals were a rate figure behind &nbsp; before this change too.
+    assert.equal(classifyPercentFigures("a fixed&nbsp;6.875% loan")[0].isRateFigure, true);
+    // The send-time shape: a tag-wrapped bare rate behind &nbsp; is a Reg-Z finding.
+    assert.equal(regz("<p>the 30-year fixed at&nbsp;6.25% this week</p>"), 1);
+    // The APR escape still applies once the noun is read.
+    assert.equal(regz("6.5%&nbsp;APR on a 30-year fixed"), 0);
+  });
+
+  it("every no-break-space spelling reads as a space, and the offsets point into the original text", () => {
+    const plain = figures("rate of 6.5%");
+    for (const sp of ["&nbsp;", "&NBSP;", "&#160;", "&#0160;", "&#xa0;", "&#xA0;", "&#x00a0;", "&#8239;", "&#x202f;", "&thinsp;", "&ensp;", "&emsp;"]) {
+      const t = `rate of${sp}6.5%`;
+      assert.deepEqual(figures(t), [[7 + sp.length, "6.5%", true]], t);
+      assert.equal(plain[0][2], true);
+    }
+  });
+
+  it("&amp; and &#37; decode to their characters without moving any offset", () => {
+    const t = "Taxes &amp; insurance aside: the 30-year is at 6.5&#37; today";
+    const f = classifyPercentFigures(t);
+    assert.equal(f.length, 1);
+    assert.equal(f[0].index, t.indexOf("6.5&#37;"));
+    // The decoded character sits at the END of its run, so the token spans the whole entity.
+    assert.equal(f[0].matchedText, "6.5&#37;");
+    assert.equal(f[0].isRateFigure, true);
+    assert.equal(regz("rates at 6.5&percnt;"), 1);
+    // A rate behind &amp; with no other boundary is governed exactly as behind "&".
+    assert.deepEqual(figures("rates &amp; 6.5%").map((x) => x[2]), figures("rates & 6.5%").map((x) => x[2]));
+  });
+
+  it("an entity is classified exactly as the character it renders, sentence by sentence", () => {
+    for (const [entity, rendered] of [
+      ["Rates are around&nbsp;6.25% right now.", "Rates are around 6.25% right now."],
+      ["Rates fell&nbsp;3% this month.", "Rates fell 3% this month."],
+      ["values are up about&nbsp;2.4%", "values are up about 2.4%"],
+      ["<p>Today's 30-year fixed:&nbsp;6.25%</p>", "<p>Today's 30-year fixed: 6.25%</p>"],
+      ["Your current rate is&nbsp;2.88%.", "Your current rate is 2.88%."],
+    ]) {
+      assert.deepEqual(figures(entity).map((x) => x[2]), figures(rendered).map((x) => x[2]), entity);
+      assert.equal(regz(entity), regz(rendered), entity);
+    }
+  });
+
+  it("entities the classifier does not need stay as they were, and an entity inside a tag is masked with it", () => {
+    // &rsquo; is left alone (no length-preserving decode would keep the word whole).
+    assert.deepEqual(figures("Today&rsquo;s rate of 6.5%").map((x) => x[2]), [true]);
+    // An attribute's entity is inside the tag and blanked with it.
+    assert.deepEqual(figures('<a title="rate of&nbsp;9%">rates</a> fell 3%').map((x) => x[2]), [false]);
+    // Not an entity: no semicolon.
+    assert.equal(classifyPercentFigures("rate of&nbsp6.5%").some((f) => f.isRateFigure), false);
+  });
+
+  it("a figure with four or more decimals is a percent token and counts as three decimals", () => {
+    assert.deepEqual(figures("rate of 6.1250%"), [[8, "6.1250%", true]]);
+    assert.deepEqual(figures("rate of 6.9900%"), [[8, "6.9900%", true]]);
+    assert.deepEqual(figures("6.12500%"), [[0, "6.12500%", true]]);
+    assert.equal(regz("Rates rose 0.1250% this week."), 1);
+    // A four-decimal delta before "to" still bridges to the level after it.
+    assert.deepEqual(figures("Rates are down 0.2500% to 6.1%.").map((x) => x[2]), [true, true]);
+    // The lead's own four-decimal rate keeps the own-rate escape.
+    assert.equal(regz("Saw your 6.1250% rate alert come through."), 0);
+    assert.equal(regz("Your 6.1250% rate is well below today's market."), 0);
+    // Unchanged: three integer digits are not a rate token.
+    assert.deepEqual(figures("a rate of 100%"), []);
+  });
+});

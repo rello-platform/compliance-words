@@ -24,11 +24,39 @@ Pure functions over text — no I/O at call time, no throw on bad input.
 import re
 
 # ── HTML masking (preserves offsets 1:1, mirror match-engine.ts maskHtml) ─────
+# Ruling 283: the entities a reader sees as a space, "&" or "%" decode in the
+# same pass, into a run of the entity's own length with the character LAST.
+# Every other entity stays as text. Mirrors match-engine.ts maskHtml.
 _HTML_TAG_RE = re.compile(r"<[^>]*>")
+_HTML_ENTITY_RE = re.compile(r"&(?:#x([0-9a-f]+)|#([0-9]+)|([a-z]+));", re.IGNORECASE)
+_NAMED_ENTITY_CHAR = {"nbsp": " ", "ensp": " ", "emsp": " ", "thinsp": " ", "amp": "&", "percnt": "%"}
+
+
+def _numeric_entity_char(code_point):
+    if code_point == 0x26:
+        return "&"
+    if code_point == 0x25:
+        return "%"
+    # Space, no-break space, the U+2002-U+200A typographic spaces, narrow no-break space.
+    if code_point in (0x20, 0xA0, 0x202F) or 0x2002 <= code_point <= 0x200A:
+        return " "
+    return None
+
+
+def _decode_entity(m):
+    hex_digits, dec_digits, name = m.group(1), m.group(2), m.group(3)
+    if name is not None:
+        ch = _NAMED_ENTITY_CHAR.get(name.lower())
+    else:
+        ch = _numeric_entity_char(int(hex_digits, 16) if hex_digits is not None else int(dec_digits, 10))
+    if ch is None:
+        return m.group(0)
+    return " " * (len(m.group(0)) - 1) + ch
 
 
 def _mask_html(text):
-    return _HTML_TAG_RE.sub(lambda m: " " * len(m.group(0)), text)
+    masked = _HTML_TAG_RE.sub(lambda m: " " * len(m.group(0)), text)
+    return _HTML_ENTITY_RE.sub(_decode_entity, masked)
 
 
 # ── Severity (mirror RateClaimSeverity + applyFloor) ──────────────────────────
@@ -49,7 +77,7 @@ def _within_any_range(offset, ranges):
 
 
 # ── REG-Z numeric primitives (mirror detectsRateFigure + APR escape) ──────────
-_PERCENT_TOKEN = re.compile(r"\b\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent\b)", re.IGNORECASE)
+_PERCENT_TOKEN = re.compile(r"\b\d{1,2}(?:\.\d+)?\s*(?:%|percent\b)", re.IGNORECASE)
 _WINDOW = 40
 
 # K-13 (Rello #1327; applied here 2026-09-16, K-30): a percent is a RATE figure
@@ -94,7 +122,7 @@ _RATE_LEVEL = re.compile(
     r"holds?|holding|held|stays?|stayed|remains?|remained|averages?|averaged|averaging)$",
     re.IGNORECASE,
 )
-_NUMBER = re.compile(r"^\d{1,2}(?:\.\d{1,3})?$")
+_NUMBER = re.compile(r"^\d{1,2}(?:\.\d+)?$")
 
 
 def _is_movement_bridge(bridge):
@@ -106,7 +134,7 @@ def _is_movement_bridge(bridge):
     if last < 0:
         return False
     return not any(_RATE_LEVEL.match(w) for w in bridge[last + 1:])
-_THREE_DECIMALS = re.compile(r"\.\d{3}$")
+_THREE_DECIMALS = re.compile(r"\.\d{3,}$")
 
 
 def _words(text):
@@ -186,7 +214,7 @@ OWN_RATE_CUES = re.compile(
     r"\byour\s+(?:current\s+|existing\s+|locked(?:[\s-]?in)?\s+)?rate\b|"
     r"\btheir\s+(?:current\s+|existing\s+)?rate\b|\brate\s+alert\b|"
     r"\byou(?:'re|\s+are)\s+sitting\s+on\b|"
-    r"\byour\s+\d{1,2}(?:\.\d{1,3})?\s*(?:%|percent)\s+rate\b|"
+    r"\byour\s+\d{1,2}(?:\.\d+)?\s*(?:%|percent)\s+rate\b|"
     r"\bthe\s+rate\s+you(?:'?ve|'?re|\s+(?:have|had|locked|got|are))\b",
     re.IGNORECASE,
 )
