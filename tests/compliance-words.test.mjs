@@ -600,3 +600,23 @@ describe("dist/compliance-words-keyset.json", () => {
     assert.deepEqual(keysetTokens, codeTokens);
   });
 });
+
+// ── Ruling 283 (2026-10-18): maskHtml decodes the entities a reader sees as a space,
+// "&" or "%" in place. The M7 matcher shares the primitive, so a negation across
+// &nbsp; reads as it renders: before, the `;` ended the sentence between the cue
+// and the token. Offsets still point into the original text.
+describe("M7 — ruling 283: an HTML entity reads as the character it renders", () => {
+  const tokensOf = (text) => checkCompliance(text).map((v) => v.token).sort();
+
+  it("a negation across &nbsp; is a negation, as it is across a space", () => {
+    assert.deepEqual(tokensOf("Approval is not&nbsp;guaranteed."), tokensOf("Approval is not guaranteed."));
+    assert.deepEqual(tokensOf("We never&#160;guarantee approval."), tokensOf("We never guarantee approval."));
+  });
+
+  it("an affirmative token behind an entity is still caught at its offset in the original text", () => {
+    const t = "Rates &amp; terms:&nbsp;guaranteed approval.";
+    const v = checkCompliance(t);
+    assert.deepEqual(v.map((x) => x.token).sort(), tokensOf("Rates & terms: guaranteed approval."));
+    for (const x of v) assert.equal(t.slice(x.index, x.index + x.matchedText.length), x.matchedText);
+  });
+});

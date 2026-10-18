@@ -130,9 +130,49 @@ export function compileMatcher(entry: MatchableEntry): CompiledMatcher {
  * Replace every `<...>` tag with spaces of equal length so offsets are preserved
  * 1:1. Effect: `<b>guarantee</b>` → the token is caught at its true offset, while
  * `quote` inside `<a href="quote.html">` is masked (inside the tag) and ignored.
+ *
+ * Ruling 283 (2026-10-18, LA25-36): the entities a reader sees as a space, `&`
+ * or `%` are decoded in the same pass, each into a run of the entity's own
+ * length: spaces, then the character LAST, so a decoded `%` still ends the
+ * figure it follows ("6.5&#37;" → "6.5    %", matched as the whole entity).
+ * Before, the `;` of `&nbsp;` was a clause/sentence boundary that no reader
+ * sees: "the 30-year fixed at&nbsp;6.25%" was not a rate figure and "not&nbsp;
+ * guaranteed" was not a negation. Every other entity is left as text, as before
+ * (no same-length decode keeps a word like "Today&rsquo;s" whole). An entity
+ * inside a tag is blanked with the tag.
  */
+const HTML_TAG_RE = /<[^>]*>/g;
+const HTML_ENTITY_RE = /&(?:#x([0-9a-f]+)|#([0-9]+)|([a-z]+));/gi;
+/** Named entities decoded in place. */
+const NAMED_ENTITY_CHAR: Readonly<Record<string, string>> = {
+  nbsp: " ",
+  ensp: " ",
+  emsp: " ",
+  thinsp: " ",
+  amp: "&",
+  percnt: "%",
+};
+
+/** The character a numeric entity is decoded to, or undefined to leave it as text. */
+function numericEntityChar(codePoint: number): string | undefined {
+  if (codePoint === 0x26) return "&";
+  if (codePoint === 0x25) return "%";
+  // Space, no-break space, the U+2002–U+200A typographic spaces, narrow no-break space.
+  if (codePoint === 0x20 || codePoint === 0xa0 || (codePoint >= 0x2002 && codePoint <= 0x200a) || codePoint === 0x202f) {
+    return " ";
+  }
+  return undefined;
+}
+
 export function maskHtml(text: string): string {
-  return text.replace(/<[^>]*>/g, (m) => " ".repeat(m.length));
+  return text
+    .replace(HTML_TAG_RE, (m) => " ".repeat(m.length))
+    .replace(HTML_ENTITY_RE, (m, hex: string | undefined, dec: string | undefined, name: string | undefined) => {
+      const ch = name !== undefined
+        ? NAMED_ENTITY_CHAR[name.toLowerCase()]
+        : numericEntityChar(hex !== undefined ? parseInt(hex, 16) : parseInt(dec as string, 10));
+      return ch === undefined ? m : " ".repeat(m.length - 1) + ch;
+    });
 }
 
 // ── Word index (for negation scan) ───────────────────────────────────────────

@@ -58,6 +58,10 @@ at a word boundary **and** none of its allowed contexts fires:
 `lock` ≠ `block`, `final` ≠ `finalize`); `AI` is matched **case-sensitively**
 (`OpenAI`/`email` never match). HTML tags are masked before matching, so
 `<b>guarantee</b>` is caught while a token inside a URL/attribute is ignored.
+Since v0.9.2 (ruling 283), the same pass decodes the entities a reader sees as a
+space, `&` or `%` (`&nbsp;`, `&#160;`, `&#xa0;`, `&amp;`, `&#37;` …). Each one
+decodes in place, padded to its own length, so offsets are unchanged:
+`not&nbsp;guaranteed` reads as a negation, and `rate of&nbsp;6.5%` as a rate figure.
 
 `offer` is a **phrase** matched only on its promotional collocations (`"special
 offer"`, `"limited-time offer"`, `"offer expires"`, …) — ordinary verb/participle

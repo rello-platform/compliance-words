@@ -39,7 +39,7 @@ import re
 # single source of truth, so the two Python scanners never carry two divergent
 # own-rate definitions (mirrors src/lanes/scan.ts importing them from
 # src/rate-claims/scan.ts).
-from rate_claims import OWN_RATE_CUES, OFFER_CUES, OWN_RATE_WINDOW
+from rate_claims import OWN_RATE_CUES, OFFER_CUES, OWN_RATE_WINDOW, _mask_html as _shared_mask_html
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 # Default to a sibling dist artifact; a consumer (Report-Engine) overrides via
@@ -56,7 +56,6 @@ _BOUNDARY_AFTER = r"(?![{}])".format(_WORD_CHAR)
 _SEP = r"[^{}]+".format(_WORD_CHAR)
 _SENTENCE_TERMINATOR = re.compile(r"[.!?;\n]")
 _WORD_RE = re.compile("[A-Za-z0-9'‘’]+")
-_HTML_TAG_RE = re.compile(r"<[^>]*>")
 
 
 def _escape_regex(s):
@@ -169,7 +168,9 @@ _COMPILED = _compile_lane_registry(_KEYSET)
 # ── HTML masking + word index (mirror match-engine.ts) ───────────────────────
 
 def _mask_html(text):
-    return _HTML_TAG_RE.sub(lambda m: " " * len(m.group(0)), text)
+    # One Python home for the mask (ruling 283 added entity decoding), as one TS
+    # home (match-engine.ts maskHtml) serves both scanners.
+    return _shared_mask_html(text)
 
 
 class _Word(object):
