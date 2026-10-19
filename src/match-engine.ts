@@ -32,6 +32,7 @@ import {
   type MatchType,
   type AllowedContext,
 } from "./registry/index.js";
+import { HTML_NAMED_ENTITIES, HTML_NUMERIC_REMAP } from "./html-entities.js";
 
 // ── Regex compilation primitives ─────────────────────────────────────────────
 
@@ -137,41 +138,69 @@ export function compileMatcher(entry: MatchableEntry): CompiledMatcher {
  * figure it follows ("6.5&#37;" → "6.5    %", matched as the whole entity).
  * Before, the `;` of `&nbsp;` was a clause/sentence boundary that no reader
  * sees: "the 30-year fixed at&nbsp;6.25%" was not a rate figure and "not&nbsp;
- * guaranteed" was not a negation. Every other entity is left as text, as before
- * (no same-length decode keeps a word like "Today&rsquo;s" whole). An entity
- * inside a tag is blanked with the tag.
+ * guaranteed" was not a negation. An entity inside a tag is blanked with the tag.
+ *
+ * Ruling 297 (2026-10-19, LA23-48): EVERY entity decodes, not only those three:
+ * "Our rate&mdash;6.25%" was not a figure while "Our rate—6.25%" was. The tables
+ * are the WHATWG ones (src/html-entities.ts, generated from the same stdlib
+ * tables the Python port reads), applied as HTML applies them in text:
+ * - a named reference with its `;`, or the longest legacy name HTML accepts bare
+ *   ("&nbsp6.5%", "&notit;" → "¬it;", whose `;` is then visible text);
+ * - a numeric reference with or without its `;`: &#128;–&#159; read as
+ *   windows-1252, and 0, surrogates or past U+10FFFF read as U+FFFD.
+ * Unknown names stay text. A decoded space-like or invisible character (Zs, Cc,
+ * Cf) is a space. A same-length run still splits a word ("isn&rsquo;t").
  */
 const HTML_TAG_RE = /<[^>]*>/g;
-const HTML_ENTITY_RE = /&(?:#x([0-9a-f]+)|#([0-9]+)|([a-z]+));/gi;
-/** Named entities decoded in place. */
-const NAMED_ENTITY_CHAR: Readonly<Record<string, string>> = {
-  nbsp: " ",
-  ensp: " ",
-  emsp: " ",
-  thinsp: " ",
-  amp: "&",
-  percnt: "%",
-};
+const HTML_ENTITY_RE = /&(?:#[xX]([0-9a-fA-F]+);?|#([0-9]+);?|([A-Za-z][A-Za-z0-9]{0,31})(;?))/g;
+/** Decoded characters that read as a space: separators, controls, invisible format characters. */
+const READS_AS_SPACE_RE = /[\p{Zs}\p{Cc}\p{Cf}]/gu;
 
-/** The character a numeric entity is decoded to, or undefined to leave it as text. */
-function numericEntityChar(codePoint: number): string | undefined {
-  if (codePoint === 0x26) return "&";
-  if (codePoint === 0x25) return "%";
-  // Space, no-break space, the U+2002–U+200A typographic spaces, narrow no-break space.
-  if (codePoint === 0x20 || codePoint === 0xa0 || (codePoint >= 0x2002 && codePoint <= 0x200a) || codePoint === 0x202f) {
-    return " ";
+/** The code point of a reference's digits; more digits than U+10FFFF has is past it. */
+function codePointOf(digits: string, base: 16 | 10): number {
+  const significant = digits.replace(/^0+/, "");
+  if (significant.length > (base === 16 ? 6 : 7)) return 0x110000;
+  return significant === "" ? 0 : parseInt(significant, base);
+}
+
+/** The characters a numeric reference renders as (HTML's numeric character reference end state). */
+function numericEntityChars(codePoint: number): string {
+  if (codePoint === 0 || codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+    return "�";
   }
-  return undefined;
+  return HTML_NUMERIC_REMAP.get(codePoint) ?? String.fromCodePoint(codePoint);
+}
+
+/** The length of the named reference HTML consumes and what it renders as, or null when it is not one. */
+function namedEntity(name: string, semicolon: boolean): { length: number; chars: string } | null {
+  const full = semicolon ? HTML_NAMED_ENTITIES.get(`${name};`) : undefined;
+  if (full !== undefined) return { length: name.length + 2, chars: full };
+  // Only the legacy names are keyed without ";", so this finds the longest bare one.
+  for (let n = name.length; n >= 2; n--) {
+    const chars = HTML_NAMED_ENTITIES.get(name.slice(0, n));
+    if (chars !== undefined) return { length: n + 1, chars };
+  }
+  return null;
+}
+
+/** A run of `length` with the decoded characters last, or null when they cannot fit. */
+function decodedRun(length: number, chars: string): string | null {
+  const shown = chars.replace(READS_AS_SPACE_RE, " ");
+  return shown.length > length ? null : " ".repeat(length - shown.length) + shown;
 }
 
 export function maskHtml(text: string): string {
   return text
     .replace(HTML_TAG_RE, (m) => " ".repeat(m.length))
-    .replace(HTML_ENTITY_RE, (m, hex: string | undefined, dec: string | undefined, name: string | undefined) => {
-      const ch = name !== undefined
-        ? NAMED_ENTITY_CHAR[name.toLowerCase()]
-        : numericEntityChar(hex !== undefined ? parseInt(hex, 16) : parseInt(dec as string, 10));
-      return ch === undefined ? m : " ".repeat(m.length - 1) + ch;
+    .replace(HTML_ENTITY_RE, (m, hex: string | undefined, dec: string | undefined, name: string | undefined, semi: string | undefined) => {
+      if (name === undefined) {
+        const run = decodedRun(m.length, numericEntityChars(hex !== undefined ? codePointOf(hex, 16) : codePointOf(dec as string, 10)));
+        return run ?? m;
+      }
+      const entity = namedEntity(name, semi === ";");
+      if (entity === null) return m;
+      const run = decodedRun(entity.length, entity.chars);
+      return run === null ? m : run + m.slice(entity.length);
     });
 }
 
