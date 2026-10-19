@@ -620,3 +620,26 @@ describe("M7 — ruling 283: an HTML entity reads as the character it renders", 
     for (const x of v) assert.equal(t.slice(x.index, x.index + x.matchedText.length), x.matchedText);
   });
 });
+
+// ── Ruling 297 (LA23-48): every entity decodes, so its ";" no longer ends the
+// sentence between a negation cue and its token.
+describe("M7 — ruling 297: every HTML entity reads as the character it renders", () => {
+  const tokensOf = (text) => checkCompliance(text).map((v) => v.token).sort();
+
+  it("a negation across any entity reads as it renders", () => {
+    for (const [entity, rendered] of [
+      ["Approval is not&mdash;guaranteed.", "Approval is not\u2014guaranteed."],
+      ["Approval is not&#8203;guaranteed.", "Approval is not\u200bguaranteed."],
+      ["Approval is not&nbsp guaranteed.", "Approval is not guaranteed."],
+      ["We do not&hellip; guarantee approval.", "We do not\u2026 guarantee approval."],
+    ]) {
+      assert.deepEqual(tokensOf(entity), tokensOf(rendered), entity);
+    }
+    assert.deepEqual(tokensOf("Approval is not&mdash;guaranteed."), []);
+  });
+
+  it("a real sentence end in an entity still ends the sentence", () => {
+    // "&period;" renders ".", so the cue does not reach the next sentence.
+    assert.deepEqual(tokensOf("Not today&period; Guaranteed approval."), tokensOf("Not today. Guaranteed approval."));
+  });
+});

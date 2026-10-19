@@ -54,6 +54,8 @@
     { "text": "<a href=\"https://x.com/lock-your-rate\">info</a>", "role": "AGENT" },
     { "text": "", "role": "AGENT" },
     { "text": "We will never&nbsp;lock your rate for you.", "role": "AGENT" },
-    { "text": "Not&nbsp;a commitment to lend: I can lock your rate.", "role": "AGENT" }
+    { "text": "Not&nbsp;a commitment to lend: I can lock your rate.", "role": "AGENT" },
+    { "text": "We will never&mdash;ever&mdash;lock your rate for you.", "role": "AGENT" },
+    { "text": "We will never&#8203;lock your rate for you.", "role": "AGENT" }
   ]
 }

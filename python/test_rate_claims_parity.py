@@ -18,10 +18,14 @@ Coverage:
       coverage (runs even when node is unavailable).
 """
 
+import html.entities
+import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
+import tempfile
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,7 +48,7 @@ def _load_corpus():
         return json.load(fh)["cases"]
 
 
-def _ts_verdicts(cases):
+def _ts_verdicts(cases, corpus_path=_CORPUS_PATH):
     if not os.path.isfile(_DIST_INDEX):
         return None
     script = (
@@ -57,7 +61,7 @@ def _ts_verdicts(cases):
     ) % _DIST_INDEX.replace("\\", "/")
     try:
         res = subprocess.run(
-            ["node", "--input-type=module", "-e", script, _CORPUS_PATH],
+            ["node", "--input-type=module", "-e", script, corpus_path],
             capture_output=True, text=True, timeout=60,
         )
     except (OSError, subprocess.SubprocessError):
@@ -216,6 +220,96 @@ class RateClaimBehavior(unittest.TestCase):
         self.assertEqual(scan_rate_claims(None), [])
         self.assertEqual(scan_rate_claims(12345), [])
         self.assertFalse(has_rate_claim_violation(""))
+
+
+# ── Ruling 297 (LA23-48): every HTML entity decodes, TS and Python alike ──────
+def _entity_sweep_texts():
+    refs = ["&" + name for name in sorted(html.entities.html5)]
+    # A legacy name HTML accepts bare is the longest prefix of a longer run ("&notit;" -> "\u00acit;").
+    refs += ["&" + name + "zz;" for name in sorted(html.entities.html5) if not name.endswith(";")]
+    code_points = list(range(0, 0x200)) + list(range(0x2000, 0x2070)) + [
+        0xFEFF, 0xFFFD, 0xD800, 0xDFFF, 0x1D504, 0x1F600, 0x10FFFF, 0x110000, 10 ** 12]
+    for cp in code_points:
+        refs += ["&#%d;" % cp, "&#%d" % cp, "&#x%x;" % cp, "&#X%X" % cp]
+    refs += ["&#0000000000160;", "&#x" + "0" * 40 + "a0;", "&#" + "9" * 5000 + ";", "&#x;", "&#;", "&bogus;", "&MDash;"]
+    return ["Our rate%s6.25%% and %srates at 6.5%%%s today" % (r, r, r) for r in refs]
+
+
+def _load_generator():
+    spec = importlib.util.spec_from_file_location("gen_html_entities", os.path.join(_ROOT, "scripts", "gen-html-entities.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class EntityDecodeParity(unittest.TestCase):
+    def test_generated_table_is_current(self):
+        gen = _load_generator()
+        with open(gen.OUT, "r", encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), gen.render(), "src/html-entities.ts is stale: run python3 scripts/gen-html-entities.py")
+
+    def test_ts_decodes_every_entity_as_python_does(self):
+        # The TS scanner must read each entity text exactly as it reads Python's
+        # masked text for it (same length, so the same offsets). That isolates the
+        # decoders from the regex dialects: Python's \b and [a-z] (re.I) are
+        # Unicode-aware and JS's are not, so a decoded "\u00c6" can already split
+        # the two languages on raw text, with or without an entity.
+        from rate_claims import _mask_html
+        texts = _entity_sweep_texts()
+        # An astral character is one code point here and two UTF-16 units in JS, so
+        # Python's run carries one more pad space before it than the TS run does.
+        masked = [re.sub("( )([\U00010000-\U0010FFFF])", r"\2", _mask_html(t)) for t in texts]
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump({"cases": [{"text": t} for t in texts + masked]}, fh)
+            path = fh.name
+        try:
+            ts = _ts_verdicts(texts + masked, path)
+        finally:
+            os.unlink(path)
+        if ts is None:
+            self.skipTest("node or dist/index.js unavailable — build the package (npm run compile).")
+        n = len(texts)
+        self.assertEqual(len(ts), 2 * n)
+        mismatches = [(texts[i], ts[i], ts[n + i]) for i in range(n) if ts[i] != ts[n + i]]
+        self.assertEqual(mismatches[:5], [], "%d of %d entity texts decode differently" % (len(mismatches), n))
+
+
+class EntityDecodeBehavior(unittest.TestCase):
+    def _regz(self, text):
+        return len([v for v in scan_rate_claims(text) if v["token"] == "regz_rate_figure_no_apr"])
+
+    def test_auditor_cases_read_as_rendered(self):
+        for entity, rendered in [
+            ("Our rate&mdash;6.25%", "Our rate\u20146.25%"),
+            ("Our rate&ndash;6.25%", "Our rate\u20136.25%"),
+            ("Our rate is &quot;6.25%&quot;", 'Our rate is "6.25%"'),
+            ("Our rate&#8203;6.25%", "Our rate\u200b6.25%"),
+            ("rate of&nbsp6.5%", "rate of 6.5%"),
+            ("the 30-year is at 6.5&#37 today", "the 30-year is at 6.5% today"),
+            ("Our rate&#151;6.25%", "Our rate\u20146.25%"),
+        ]:
+            self.assertEqual(self._regz(entity), self._regz(rendered), entity)
+            self.assertEqual(self._regz(entity), 1, entity)
+        # Not an HTML entity (names are case-sensitive); a legacy prefix leaves its ";" visible.
+        self.assertEqual(self._regz("rate of&NBSP;6.5%"), 0)
+        self.assertEqual(self._regz("Our rate&notit;6.25%"), 0)
+
+    def test_mask_decodes_as_html_does(self):
+        from rate_claims import _mask_html
+        for ref, run in [
+            ("&mdash;", "      \u2014"), ("&#151;", "     \u2014"), ("&#x96;", "     \u2013"),
+            ("&#129;", "      "), ("&#0;", "   \ufffd"), ("&#xD800;", "       \ufffd"),
+            ("&#x110000;", "         \ufffd"), ("&nbsp", "     "), ("&#8203;", "       "),
+            ("&notit;", "   \u00acit;"), ("&NBSP;", "&NBSP;"), ("&bogus;", "&bogus;"),
+        ]:
+            self.assertEqual(_mask_html(ref), run, ref)
+
+    def test_mask_keeps_every_offset(self):
+        from rate_claims import _mask_html
+        for text in _entity_sweep_texts():
+            self.assertEqual(len(_mask_html(text)), len(text), text[:60])
+        plain = "Rates fell 3% this month; today's 30-year fixed is 6.25% (6.41% APR)."
+        self.assertEqual(_mask_html(plain), plain)
 
 
 if __name__ == "__main__":

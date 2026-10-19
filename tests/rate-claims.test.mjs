@@ -482,11 +482,14 @@ describe("rate-claims — ruling 283: HTML entities decode in place; four-decima
 
   it("every no-break-space spelling reads as a space, and the offsets point into the original text", () => {
     const plain = figures("rate of 6.5%");
-    for (const sp of ["&nbsp;", "&NBSP;", "&#160;", "&#0160;", "&#xa0;", "&#xA0;", "&#x00a0;", "&#8239;", "&#x202f;", "&thinsp;", "&ensp;", "&emsp;"]) {
+    for (const sp of ["&nbsp;", "&#160;", "&#0160;", "&#xa0;", "&#xA0;", "&#x00a0;", "&#8239;", "&#x202f;", "&thinsp;", "&ensp;", "&emsp;"]) {
       const t = `rate of${sp}6.5%`;
       assert.deepEqual(figures(t), [[7 + sp.length, "6.5%", true]], t);
       assert.equal(plain[0][2], true);
     }
+    // Ruling 297: "&NBSP;" is not an HTML entity (the WHATWG names are case-sensitive),
+    // so it renders as written and its ";" ends the clause, as "rate of&NBSP;6.5%" reads.
+    assert.deepEqual(figures("rate of&NBSP;6.5%"), [[13, "6.5%", false]]);
   });
 
   it("&amp; and &#37; decode to their characters without moving any offset", () => {
@@ -515,13 +518,13 @@ describe("rate-claims — ruling 283: HTML entities decode in place; four-decima
     }
   });
 
-  it("entities the classifier does not need stay as they were, and an entity inside a tag is masked with it", () => {
-    // &rsquo; is left alone (no length-preserving decode would keep the word whole).
+  it("an apostrophe entity does not change the figure, and an entity inside a tag is masked with it", () => {
+    // Ruling 297: &rsquo; now decodes too (a same-length run still splits the word).
     assert.deepEqual(figures("Today&rsquo;s rate of 6.5%").map((x) => x[2]), [true]);
     // An attribute's entity is inside the tag and blanked with it.
     assert.deepEqual(figures('<a title="rate of&nbsp;9%">rates</a> fell 3%').map((x) => x[2]), [false]);
-    // Not an entity: no semicolon.
-    assert.equal(classifyPercentFigures("rate of&nbsp6.5%").some((f) => f.isRateFigure), false);
+    // Ruling 297 reverses 283 here: HTML accepts "&nbsp" without its semicolon.
+    assert.deepEqual(figures("rate of&nbsp6.5%"), [[12, "6.5%", true]]);
   });
 
   it("a figure with four or more decimals is a percent token and counts as three decimals", () => {
@@ -536,5 +539,64 @@ describe("rate-claims — ruling 283: HTML entities decode in place; four-decima
     assert.equal(regz("Your 6.1250% rate is well below today's market."), 0);
     // Unchanged: three integer digits are not a rate token.
     assert.deepEqual(figures("a rate of 100%"), []);
+  });
+});
+
+// ── Ruling 297 (2026-10-19, LA23-48): every HTML entity reads as the character it renders ──
+// Ruling 283 decoded only the entities that read as a space, "&" or "%". Every
+// other entity still ended a clause at its ";": "Our rate&mdash;6.25%" was not a
+// figure while "Our rate—6.25%" was (LIFECYCLE AUDIT 23 B9). maskHtml now decodes
+// every named or numeric reference from the WHATWG tables (src/html-entities.ts,
+// generated), including the bare forms HTML accepts ("&nbsp", "&#37"), into a run
+// of the entity's own length with the characters LAST. A decoded space-like or
+// invisible character (Unicode Zs, Cc, Cf) is a space.
+describe("rate-claims — ruling 297: every HTML entity reads as the character it renders", () => {
+  const verdicts = (t) => classifyPercentFigures(t).map((f) => f.isRateFigure);
+  const regz = (t) => tokensOf(t).filter((x) => x === "regz_rate_figure_no_apr").length;
+
+  it("the auditor's cases (LA23-48) classify as the text they render", () => {
+    for (const [entity, rendered] of [
+      ["Our rate&mdash;6.25%", "Our rate—6.25%"],
+      ["Our rate&ndash;6.25%", "Our rate–6.25%"],
+      ["Our rate is &quot;6.25%&quot;", 'Our rate is "6.25%"'],
+      ["Our rate&#8203;6.25%", "Our rate​6.25%"],
+      ["rate of&nbsp6.5%", "rate of 6.5%"],
+      ["the 30-year is at 6.5&#37 today", "the 30-year is at 6.5% today"],
+      ["Our rate&#151;6.25%", "Our rate—6.25%"],
+      ["Our rate&#x2014;6.25%", "Our rate—6.25%"],
+      ["Our rate&MDash;6.25%", "Our rate&MDash;6.25%"],
+    ]) {
+      assert.deepEqual(verdicts(entity), verdicts(rendered), entity);
+      assert.equal(regz(entity), regz(rendered), entity);
+    }
+    assert.deepEqual(verdicts("Our rate&mdash;6.25%"), [true]);
+  });
+
+  it("a token spans its whole entity and every offset points into the original text", () => {
+    const t = "Our rate&mdash;6.25%, or 6.5&#37 with points";
+    const f = classifyPercentFigures(t);
+    assert.deepEqual(f.map((x) => [x.index, x.matchedText, x.isRateFigure]), [[15, "6.25%", true], [25, "6.5&#37", false]]);
+    assert.deepEqual(verdicts(t), verdicts("Our rate\u20146.25%, or 6.5% with points"));
+    for (const x of f) assert.equal(t.slice(x.index, x.index + x.matchedText.length), x.matchedText);
+  });
+
+  it("HTML's own rules: the longest legacy name, the windows-1252 remap, invalid references", () => {
+    // "&notit;" renders "¬it;": the legacy "&not" decodes and its ";" is visible text, so it still ends the clause.
+    assert.deepEqual(verdicts("Our rate&notit;6.25%"), verdicts("Our rate¬it;6.25%"));
+    assert.deepEqual(verdicts("Our rate&notit;6.25%"), [false]);
+    // Unknown names and malformed references stay text, as HTML leaves them.
+    assert.deepEqual(verdicts("Our rate&bogus;6.25%"), [false]);
+    assert.deepEqual(verdicts("Our rate&#x;6.25%"), [false]);
+    // Out-of-range and surrogate references render U+FFFD; an astral reference is one run.
+    for (const ref of ["&#0;", "&#xD800;", "&#x110000;", "&#99999999999;", "&#x1D504;", "&Afr;"]) {
+      assert.deepEqual(verdicts(`Our rate${ref}6.25%`), [true], ref);
+    }
+  });
+
+  it("text with no entity classifies exactly as before", () => {
+    assert.deepEqual(
+      classifyPercentFigures("Rates fell 3% this month; today's 30-year fixed is 6.25% (6.41% APR).").map((x) => [x.index, x.matchedText, x.isRateFigure]),
+      [[11, "3%", false], [51, "6.25%", true], [58, "6.41%", true]],
+    );
   });
 });

@@ -22,36 +22,71 @@ Pure functions over text — no I/O at call time, no throw on bad input.
 """
 
 import re
+import unicodedata
+from html.entities import html5 as _HTML5
 
 # ── HTML masking (preserves offsets 1:1, mirror match-engine.ts maskHtml) ─────
-# Ruling 283: the entities a reader sees as a space, "&" or "%" decode in the
-# same pass, into a run of the entity's own length with the character LAST.
-# Every other entity stays as text. Mirrors match-engine.ts maskHtml.
+# Ruling 283 decoded the entities a reader sees as a space, "&" or "%". Ruling
+# 297 (LA23-48) decodes EVERY entity, from the same WHATWG tables the TS side
+# is generated from (scripts/gen-html-entities.py): the stdlib html5 table, with
+# the longest legacy name HTML accepts bare, and numeric references with or
+# without ";" (&#128;-&#159; as windows-1252; 0, surrogates, past U+10FFFF as
+# U+FFFD). Each becomes a run of the consumed length with the characters LAST;
+# a decoded space-like or invisible character (Zs, Cc, Cf) is a space. Unknown
+# names stay text. Mirrors match-engine.ts maskHtml.
 _HTML_TAG_RE = re.compile(r"<[^>]*>")
-_HTML_ENTITY_RE = re.compile(r"&(?:#x([0-9a-f]+)|#([0-9]+)|([a-z]+));", re.IGNORECASE)
-_NAMED_ENTITY_CHAR = {"nbsp": " ", "ensp": " ", "emsp": " ", "thinsp": " ", "amp": "&", "percnt": "%"}
+_HTML_ENTITY_RE = re.compile(r"&(?:#[xX]([0-9a-fA-F]+);?|#([0-9]+);?|([A-Za-z][A-Za-z0-9]{0,31})(;?))")
+_READS_AS_SPACE = ("Zs", "Cc", "Cf")
 
 
-def _numeric_entity_char(code_point):
-    if code_point == 0x26:
-        return "&"
-    if code_point == 0x25:
-        return "%"
-    # Space, no-break space, the U+2002-U+200A typographic spaces, narrow no-break space.
-    if code_point in (0x20, 0xA0, 0x202F) or 0x2002 <= code_point <= 0x200A:
-        return " "
+def _code_point(digits, base):
+    digits = digits.lstrip("0")
+    # More digits than U+10FFFF has is past it; this also keeps int() off a huge digit string.
+    if len(digits) > (6 if base == 16 else 7):
+        return 0x110000
+    return int(digits or "0", base)
+
+
+def _numeric_entity_chars(code_point):
+    if code_point == 0 or code_point > 0x10FFFF or 0xD800 <= code_point <= 0xDFFF:
+        return "\ufffd"
+    if 0x80 <= code_point <= 0x9F:
+        try:
+            return bytes([code_point]).decode("cp1252")
+        except UnicodeDecodeError:
+            pass
+    return chr(code_point)
+
+
+def _named_entity(name, semicolon):
+    if semicolon and (name + ";") in _HTML5:
+        return len(name) + 2, _HTML5[name + ";"]
+    # Only the legacy names are keyed without ";", so this finds the longest bare one.
+    for n in range(len(name), 1, -1):
+        if name[:n] in _HTML5:
+            return n + 1, _HTML5[name[:n]]
     return None
 
 
+def _decoded_run(length, chars):
+    shown = "".join(" " if unicodedata.category(c) in _READS_AS_SPACE else c for c in chars)
+    if len(shown) > length:
+        return None
+    return " " * (length - len(shown)) + shown
+
+
 def _decode_entity(m):
-    hex_digits, dec_digits, name = m.group(1), m.group(2), m.group(3)
-    if name is not None:
-        ch = _NAMED_ENTITY_CHAR.get(name.lower())
-    else:
-        ch = _numeric_entity_char(int(hex_digits, 16) if hex_digits is not None else int(dec_digits, 10))
-    if ch is None:
-        return m.group(0)
-    return " " * (len(m.group(0)) - 1) + ch
+    hex_digits, dec_digits, name, semi = m.group(1), m.group(2), m.group(3), m.group(4)
+    text = m.group(0)
+    if name is None:
+        run = _decoded_run(len(text), _numeric_entity_chars(_code_point(hex_digits, 16) if hex_digits is not None else _code_point(dec_digits, 10)))
+        return text if run is None else run
+    entity = _named_entity(name, semi == ";")
+    if entity is None:
+        return text
+    length, chars = entity
+    run = _decoded_run(length, chars)
+    return text if run is None else run + text[length:]
 
 
 def _mask_html(text):
